@@ -125,14 +125,7 @@ class JfrReportTool {
         handleRecordingByWindow(jfrFile) { IView view, int fileNumber ->
             File currentOutputFile
             if (fileNumber > 1) {
-                String fileName = outputFile.getName()
-                List<String> m = (List<String>) (fileName =~ ~/^(.*\.)(.*?)$/).find { it }
-                if (m) {
-                    fileName = "${m[1]}${fileNumber}.${m[2]}"
-                } else {
-                    fileName = "${fileName}.${fileNumber}"
-                }
-                currentOutputFile = new File(outputFile.getParentFile(), fileName)
+                currentOutputFile = createNewFileName(fileNumber, outputFile)
             } else {
                 currentOutputFile = outputFile
             }
@@ -143,6 +136,17 @@ class JfrReportTool {
                 currentOutputFile.delete()
             }
         }
+    }
+
+    private File createNewFileName(int fileNumber, File templateFile) {
+        String fileName = templateFile.getName()
+        List<String> m = (List<String>) (fileName =~ ~/^(.*\.)(.*?)$/).find { it }
+        if (m) {
+            fileName = "${m[1]}${fileNumber}.${m[2]}"
+        } else {
+            fileName = "${fileName}.${fileNumber}"
+        }
+        new File(templateFile.getParentFile() ?: new File(''), fileName)
     }
 
     void handleRecordingByWindow(File jfrFile, Closure<?> handler) {
@@ -305,9 +309,11 @@ class JfrReportTool {
         Closure methodClosure = jfrReportTool.&"$action"
         def file = new File(arguments.first()).absoluteFile
         def outputFile = (options.o) ? new File(String.valueOf(options.o)) : new File(file.parentFile, file.name + "." + (DEFAULT_EXTENSION[action] ?: 'svg'))
+        def allFiles = []
         jfrReportTool.outputMessage = { File writtenFile ->
             println "Output in ${writtenFile}"
             println "URL ${writtenFile.canonicalFile.toURI().toURL()}"
+            allFiles << writtenFile
         }
         println "Converting $file"
         try {
@@ -322,9 +328,26 @@ class JfrReportTool {
             } else {
                 println "Unsupported action"
             }
+            if (allFiles.size() > 1) {
+                println "Index is ${jfrReportTool.createIndexFile(allFiles).toURI().toURL()}"
+            }
         } catch (Throwable t) {
             t.printStackTrace()
         }
+    }
+
+    File createIndexFile(List<File> allFiles) {
+        File firstFile = allFiles[0]
+        File indexFile = new File(firstFile.getParentFile() ?: new File(''), firstFile.getName() + ".html")
+        indexFile.text = """
+<html>
+<head><title>Index of generated files</title></head>
+<body>
+${allFiles.collect { "<a href='${it.toURI().toURL()}'>$it.name</a><br/>" }.join("\n")}
+<body>
+</html>
+"""
+        indexFile
     }
 }
 
