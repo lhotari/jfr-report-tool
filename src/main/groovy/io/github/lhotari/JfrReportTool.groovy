@@ -5,9 +5,7 @@ import com.jrockit.mc.common.IMCFrame
 import com.jrockit.mc.flightrecorder.FlightRecording
 import com.jrockit.mc.flightrecorder.FlightRecordingLoader
 import com.jrockit.mc.flightrecorder.internal.model.FLRStackTrace
-import com.jrockit.mc.flightrecorder.spi.IEvent
-import com.jrockit.mc.flightrecorder.spi.IEventFilter
-import com.jrockit.mc.flightrecorder.spi.IView
+import com.jrockit.mc.flightrecorder.spi.*
 import com.jrockit.mc.flightrecorder.util.TimeRange
 import groovy.transform.CompileDynamic
 import groovy.transform.CompileStatic
@@ -81,6 +79,45 @@ class JfrReportTool {
             currentOutputFile.withWriter { writer ->
                 writeStackCounts(methodCounts.asMap(), writer, true)
             }
+        }
+    }
+
+    @ReportAction("dump info")
+    def dumpinfo(Map<String, Object> arguments) {
+        File jfrFile = (File) arguments.input
+
+        def recording = FlightRecordingLoader.loadFile(jfrFile)
+        def view = recording.createView()
+        view.setFilter(new IEventFilter() {
+            boolean accept(IEvent iEvent) {
+                iEvent.eventType.name in ['JVM Information', 'OS Information', 'CPU Information', 'Physical Memory']
+            }
+        })
+        Set<String> seen = [] as Set
+        for (IEvent event : view) {
+            String eventTypeName = event.eventType.name
+            if (!seen.contains(eventTypeName)) {
+                Map<String, Object> fields = [:]
+                event.eventType.getFields().each { IField field ->
+                    fields[field.name] = field.getValue(event)
+                }
+                println event.eventType.name
+                fields.each { k, v ->
+                    println "${k.padRight(20)} $v"
+                }
+                println()
+                seen.add(eventTypeName)
+            }
+        }
+    }
+
+    @CompileDynamic
+    @ReportAction("dump record types")
+    def recordtypes(Map<String, Object> arguments) {
+        File jfrFile = (File) arguments.input
+        def recording = FlightRecordingLoader.loadFile(jfrFile)
+        recording.m_repository.eventTypes.each { IEventType eventType ->
+            println "${eventType.name.padRight(33)}$eventType.description"
         }
     }
 
