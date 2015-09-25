@@ -86,7 +86,7 @@ class JfrReportTool {
 
             def filtered = stackTrace.findAll { matchesMethod(it) }
 
-            def flameGraphFormatted = filtered.reverse().join(';')
+            def flameGraphFormatted = filtered.reverse().collect { formatMethodName(it) }.join(';')
 
             stackCounts.incrementAndGet(flameGraphFormatted)
         }
@@ -104,6 +104,20 @@ class JfrReportTool {
             }
         }
         sort ? map.collect { entry -> entry }.sort { a, b -> b.value <=> a.value }.each(writeEntry) : map.each(writeEntry)
+    }
+
+    String formatMethodName(String s) {
+        List<String> m = (List<String>) (s =~ /^(.*?)\((.*)\)$/).find { it }
+        if (m) {
+            return { String classAndMethod, String arguments ->
+                def compactMethod = classAndMethod.split(/\./).takeRight(3).join('.')
+                def compactArgs = arguments.split(/, /).collect { String argType ->
+                    argType.split(/\./).last()
+                }.join(', ')
+                "$compactMethod(${compactArgs ?: ''})".toString()
+            }(m[1], m[2])
+        }
+        s
     }
 
     @CompileDynamic
