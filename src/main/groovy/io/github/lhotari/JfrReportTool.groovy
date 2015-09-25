@@ -154,7 +154,7 @@ class JfrReportTool {
             i 'Regexp include filter for methods', longOpt: 'include', args: 1, argName: 'filter'
             e 'Regexp exclude filter for methods', longOpt: 'exclude', args: 1, argName: 'filter'
             g 'Regexp to include all stacks with match in any frame', longOpt: 'grep', args: 1, argName: 'filter'
-            a 'Tool action', longOpt: 'action', args: 1, argName: 'action'
+            a "Tool action. Valid choices: ${reportActions.keySet().join(', ')}", longOpt: 'action', args: 1, argName: 'action'
             o 'Output file', longOpt: 'output', args: 1, argName: 'file'
             w 'Width of flamegraph', longOpt: 'width', args: 1, argName: 'pixels'
             _ 'flamegraph.pl path', longOpt: 'flamegraph-command', args: 1, argName: 'cmd'
