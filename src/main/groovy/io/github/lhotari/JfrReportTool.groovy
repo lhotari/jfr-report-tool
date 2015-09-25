@@ -20,7 +20,8 @@ class JfrReportTool {
     private static
     final Map<String, String> DEFAULT_EXTENSION = [flameGraph: 'svg', stacks: 'txt', topframes: 'top.txt']
     private static final String SAMPLING_EVENT_TYPE = "Method Profiling Sample"
-    Pattern frameFilter = ~/^((?!java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.).)*$/
+    Pattern excludeFilter = ~/^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)/
+    Pattern includeFilter = null
     int flameGraphWidth = 5000
     String flameGraphCommand = "flamegraph.pl"
     boolean sortFrames = false
@@ -45,7 +46,7 @@ class JfrReportTool {
                 flrStackTrace.frames.each { frame ->
                     // getHumanReadable(boolean showReturnValue, boolean useQualifiedReturnValue, boolean showClassName, boolean useQualifiedClassName, boolean showArguments, boolean useQualifiedArguments)
                     String methodName = ((IMCFrame) frame).method.getHumanReadable(false, true, true, true, true, true)
-                    if (methodName =~ frameFilter) {
+                    if (matchesMethod(methodName)) {
                         methodCounts.incrementAndGet(methodName)
                     }
                 }
@@ -53,6 +54,10 @@ class JfrReportTool {
             writeStackCounts(methodCounts.asMap(), writer, true)
             writer.close()
         }
+    }
+
+    private boolean matchesMethod(String methodName) {
+        (includeFilter == null || methodName =~ includeFilter) && (excludeFilter == null || !(methodName =~ excludeFilter))
     }
 
     void forEachFLRStackTrace(File jfrFile,
@@ -78,7 +83,7 @@ class JfrReportTool {
                 ((IMCFrame) frame).method.getHumanReadable(false, true, true, true, true, true)
             }
 
-            def filtered = stackTrace.findAll { it =~ frameFilter }
+            def filtered = stackTrace.findAll { matchesMethod(it) }
 
             def flameGraphFormatted = filtered.join(';')
 
@@ -103,7 +108,8 @@ class JfrReportTool {
         def cli = new CliBuilder()
         cli.with {
             h 'Help', longOpt: 'help'
-            f 'Regexp filter for methods', longOpt: 'filter', args: 1, argName: 'filter'
+            i 'Regexp include filter for methods', longOpt: 'include', args: 1, argName: 'filter'
+            e 'Regexp exclude filter for methods', longOpt: 'exclude', args: 1, argName: 'filter'
             a 'Tool action', longOpt: 'action', args: 1, argName: 'action'
             o 'Output file', longOpt: 'output', args: 1, argName: 'file'
             w 'Width of flamegraph', longOpt: 'width', args: 1, argName: 'pixels'
@@ -119,8 +125,11 @@ class JfrReportTool {
         }
 
         def jfrReportTool = new JfrReportTool()
-        if (options.f) {
-            jfrReportTool.frameFilter = Pattern.compile(options.f)
+        if (options.i) {
+            jfrReportTool.includeFilter = Pattern.compile(options.i)
+        }
+        if (options.e) {
+            jfrReportTool.excludeFilter = (options.e == 'none') ? null : Pattern.compile(options.e)
         }
         if (options.w) {
             jfrReportTool.flameGraphWidth = options.w as int
