@@ -8,12 +8,14 @@ import com.jrockit.mc.flightrecorder.internal.model.FLRStackTrace
 import com.jrockit.mc.flightrecorder.spi.IEvent
 import com.jrockit.mc.flightrecorder.spi.IEventFilter
 import com.jrockit.mc.flightrecorder.spi.IView
+import com.jrockit.mc.flightrecorder.util.TimeRange
 import groovy.transform.CompileDynamic
 import groovy.transform.CompileStatic
 import groovy.transform.stc.ClosureParams
 import groovy.transform.stc.SimpleType
 
 import java.lang.reflect.Method
+import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
 
 @CompileStatic
@@ -28,27 +30,42 @@ class JfrReportTool {
     String flameGraphCommand = "flamegraph.pl"
     boolean sortFrames = false
     int minimumSamples = 3
+    int timeWindowDuration = -1
+    Closure<?> outputMessage = {}
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
-        ProcessBuilder builder = new ProcessBuilder(flameGraphCommand, "--width", flameGraphWidth.toString())
-        builder.redirectOutput(outputFile)
-        Process process = builder.start()
-        convertToFlameGraphFormat(jfrFile, new OutputStreamWriter(process.getOutputStream()))
+        handleRecordingByWindowByFile(jfrFile, outputFile) { IView view, File currentOutputFile ->
+            StringWriter stringWriter = new StringWriter(10000)
+            convertToFlameGraphFormat(view, stringWriter)
+            if (stringWriter.getBuffer().length()) {
+                ProcessBuilder builder = new ProcessBuilder(flameGraphCommand, "--width", flameGraphWidth.toString())
+                def dateFormatter = { new Date(((it as long) / 1000000L).longValue()).format("yyyy-MM-dd HH:mm:ss") }
+                builder.command().add("--title='Duration ${dateFormatter(view.range.startTimestamp)} - ${dateFormatter(view.range.endTimestamp)}'".toString())
+                builder.redirectOutput(currentOutputFile)
+                Process process = builder.start()
+                def writer = new OutputStreamWriter(process.getOutputStream())
+                writer << stringWriter.getBuffer()
+                writer.close()
+                process.waitFor()
+            }
+        }
     }
 
     @ReportAction("creates flamegraph input file")
     def stacks(File jfrFile, File outputFile) {
-        outputFile.withWriter { writer ->
-            convertToFlameGraphFormat(jfrFile, writer)
+        handleRecordingByWindowByFile(jfrFile, outputFile) { IView view, File currentOutputFile ->
+            currentOutputFile.withWriter { writer ->
+                convertToFlameGraphFormat(view, writer)
+            }
         }
     }
 
     @ReportAction("shows top methods")
     def topframes(File jfrFile, File outputFile) {
-        outputFile.withWriter { writer ->
+        handleRecordingByWindowByFile(jfrFile, outputFile) { IView view, File currentOutputFile ->
             AtomicLongMap<String> methodCounts = AtomicLongMap.create()
-            forEachFLRStackTrace(jfrFile) { FLRStackTrace flrStackTrace ->
+            forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace ->
                 def stackTrace = flrStackTrace.frames.collect { frame ->
                     // getHumanReadable(boolean showReturnValue, boolean useQualifiedReturnValue, boolean showClassName, boolean useQualifiedClassName, boolean showArguments, boolean useQualifiedArguments)
                     ((IMCFrame) frame).method.getHumanReadable(false, true, true, true, true, true)
@@ -61,8 +78,49 @@ class JfrReportTool {
                     }
                 }
             }
-            writeStackCounts(methodCounts.asMap(), writer, true)
-            writer.close()
+            currentOutputFile.withWriter { writer ->
+                writeStackCounts(methodCounts.asMap(), writer, true)
+            }
+        }
+    }
+
+    void handleRecordingByWindowByFile(File jfrFile, File outputFile, Closure<?> handler) {
+        handleRecordingByWindow(jfrFile) { IView view, int fileNumber ->
+            File currentOutputFile
+            if (fileNumber > 1) {
+                String fileName = outputFile.getName()
+                List<String> m = (List<String>) (fileName =~ ~/^(.*\.)(.*?)$/).find { it }
+                if (m) {
+                    fileName = "${m[1]}${fileNumber}.${m[2]}"
+                } else {
+                    fileName = "${fileName}.${fileNumber}"
+                }
+                currentOutputFile = new File(outputFile.getParentFile(), fileName)
+            } else {
+                currentOutputFile = outputFile
+            }
+            handler(view, currentOutputFile)
+            if (currentOutputFile.length() > 0) {
+                outputMessage.call(currentOutputFile)
+            } else {
+                currentOutputFile.delete()
+            }
+        }
+    }
+
+    void handleRecordingByWindow(File jfrFile, Closure<?> handler) {
+        def recording = FlightRecordingLoader.loadFile(jfrFile)
+        def fullRange = recording.timeRange
+        long startTime = fullRange.startTimestamp
+        def windowDuration = timeWindowDuration > 0 ? TimeUnit.SECONDS.toNanos(timeWindowDuration) : fullRange.duration
+        int fileNumber
+        while (startTime < fullRange.endTimestamp) {
+            fileNumber++
+            long endTime = startTime + windowDuration
+            IView view = createView(recording)
+            view.setRange(new TimeRange(startTime, endTime))
+            handler(view, fileNumber)
+            startTime = endTime + 1
         }
     }
 
@@ -74,24 +132,27 @@ class JfrReportTool {
         (includeFilter == null || methodSignature =~ includeFilter) && (excludeFilter == null || !(methodSignature =~ excludeFilter))
     }
 
-    void forEachFLRStackTrace(File jfrFile,
+    void forEachFLRStackTrace(IView view,
                               @ClosureParams(value = SimpleType, options = "com.jrockit.mc.flightrecorder.internal.model.FLRStackTrace") Closure<?> handler) {
-        FlightRecording recording = FlightRecordingLoader.loadFile(jfrFile)
-        IView view = recording.createView()
-        view.setFilter(new IEventFilter() {
-            boolean accept(IEvent iEvent) {
-                iEvent.eventType.name == SAMPLING_EVENT_TYPE
-            }
-        })
         for (IEvent event : view) {
             FLRStackTrace flrStackTrace = (FLRStackTrace) event.getValue("(stackTrace)")
             handler(flrStackTrace)
         }
     }
 
-    def convertToFlameGraphFormat(File jfrFile, Writer writer) {
+    private IView createView(FlightRecording recording) {
+        IView view = recording.createView()
+        view.setFilter(new IEventFilter() {
+            boolean accept(IEvent iEvent) {
+                iEvent.eventType.name == SAMPLING_EVENT_TYPE
+            }
+        })
+        view
+    }
+
+    def convertToFlameGraphFormat(IView view, Writer writer) {
         AtomicLongMap<String> stackCounts = AtomicLongMap.create()
-        forEachFLRStackTrace(jfrFile) { FLRStackTrace flrStackTrace ->
+        forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace ->
             def stackTrace = flrStackTrace.frames.collect { frame ->
                 // getHumanReadable(boolean showReturnValue, boolean useQualifiedReturnValue, boolean showClassName, boolean useQualifiedClassName, boolean showArguments, boolean useQualifiedArguments)
                 ((IMCFrame) frame).method.getHumanReadable(false, true, true, true, true, true)
@@ -105,7 +166,6 @@ class JfrReportTool {
             }
         }
         writeStackCounts(stackCounts.asMap(), writer, sortFrames)
-        writer.close()
     }
 
     private void writeStackCounts(Map<String, Long> map, Writer writer, boolean sort) {
@@ -160,6 +220,7 @@ class JfrReportTool {
             _ 'flamegraph.pl path', longOpt: 'flamegraph-command', args: 1, argName: 'cmd'
             s 'Sort frames', longOpt: 'sort'
             m 'Minimum number of samples', longOpt: 'min', args: 1, argName: 'value'
+            d 'Duration of time window, splits output in to multiple files', longOpt: 'duration', args: 1, argName: 'seconds'
         }
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
@@ -198,19 +259,32 @@ class JfrReportTool {
         }
         if (options.m) jfrReportTool.minimumSamples = options.m as int
         if (options.s) jfrReportTool.sortFrames = true
+        if (options.d) {
+            jfrReportTool.timeWindowDuration = options.d as int
+        }
 
         Closure methodClosure = jfrReportTool.&"$action"
         def file = new File(options.arguments().first()).absoluteFile
         def outputFile = (options.o) ? new File(String.valueOf(options.o)) : new File(file.parentFile, file.name + "." + (DEFAULT_EXTENSION[action] ?: 'svg'))
-        if (methodClosure.maximumNumberOfParameters == 2) {
-            println "Converting $file"
-            methodClosure(file, outputFile)
-            println "Output in ${outputFile}"
-            println "URL ${outputFile.canonicalFile.toURI().toURL()}"
-        } else if (methodClosure.maximumNumberOfParameters == 1) {
-            methodClosure([input: file, output: outputFile, arguments: options.arguments(), options: options])
-        } else {
-            println "Unsupported action"
+        jfrReportTool.outputMessage = { File writtenFile ->
+            println "Output in ${writtenFile}"
+            println "URL ${writtenFile.canonicalFile.toURI().toURL()}"
+        }
+        println "Converting $file"
+        try {
+            if (methodClosure.maximumNumberOfParameters == 2) {
+                methodClosure(file, outputFile)
+            } else if (methodClosure.maximumNumberOfParameters == 1) {
+                def arguments = [input    : file,
+                                 output   : outputFile,
+                                 arguments: options.arguments(),
+                                 options  : options]
+                methodClosure(arguments)
+            } else {
+                println "Unsupported action"
+            }
+        } catch (Throwable t) {
+            t.printStackTrace()
         }
     }
 }
