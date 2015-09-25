@@ -22,6 +22,7 @@ class JfrReportTool {
     private static final String SAMPLING_EVENT_TYPE = "Method Profiling Sample"
     Pattern excludeFilter = ~/^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)/
     Pattern includeFilter = null
+    Pattern grepFilter = null
     int flameGraphWidth = 5000
     String flameGraphCommand = "flamegraph.pl"
     boolean sortFrames = false
@@ -44,11 +45,15 @@ class JfrReportTool {
         outputFile.withWriter { writer ->
             AtomicLongMap<String> methodCounts = AtomicLongMap.create()
             forEachFLRStackTrace(jfrFile) { FLRStackTrace flrStackTrace ->
-                flrStackTrace.frames.each { frame ->
+                def stackTrace = flrStackTrace.frames.collect { frame ->
                     // getHumanReadable(boolean showReturnValue, boolean useQualifiedReturnValue, boolean showClassName, boolean useQualifiedClassName, boolean showArguments, boolean useQualifiedArguments)
-                    String methodName = ((IMCFrame) frame).method.getHumanReadable(false, true, true, true, true, true)
-                    if (matchesMethod(methodName)) {
-                        methodCounts.incrementAndGet(methodName)
+                    ((IMCFrame) frame).method.getHumanReadable(false, true, true, true, true, true)
+                }
+                if (matchesGrepFilter(stackTrace)) {
+                    stackTrace.each { String methodSignature ->
+                        if (matchesMethod(methodSignature)) {
+                            methodCounts.incrementAndGet(methodSignature)
+                        }
                     }
                 }
             }
@@ -57,8 +62,12 @@ class JfrReportTool {
         }
     }
 
-    private boolean matchesMethod(String methodName) {
-        (includeFilter == null || methodName =~ includeFilter) && (excludeFilter == null || !(methodName =~ excludeFilter))
+    boolean matchesGrepFilter(List<String> stackTrace) {
+        grepFilter == null || stackTrace.any { String methodSignature -> methodSignature =~ grepFilter }
+    }
+
+    private boolean matchesMethod(String methodSignature) {
+        (includeFilter == null || methodSignature =~ includeFilter) && (excludeFilter == null || !(methodSignature =~ excludeFilter))
     }
 
     void forEachFLRStackTrace(File jfrFile,
@@ -83,12 +92,13 @@ class JfrReportTool {
                 // getHumanReadable(boolean showReturnValue, boolean useQualifiedReturnValue, boolean showClassName, boolean useQualifiedClassName, boolean showArguments, boolean useQualifiedArguments)
                 ((IMCFrame) frame).method.getHumanReadable(false, true, true, true, true, true)
             }
+            if (matchesGrepFilter(stackTrace)) {
+                def filtered = stackTrace.findAll { matchesMethod(it) }
 
-            def filtered = stackTrace.findAll { matchesMethod(it) }
+                def flameGraphFormatted = filtered.reverse().collect { formatMethodName(it) }.join(';')
 
-            def flameGraphFormatted = filtered.reverse().collect { formatMethodName(it) }.join(';')
-
-            stackCounts.incrementAndGet(flameGraphFormatted)
+                stackCounts.incrementAndGet(flameGraphFormatted)
+            }
         }
         writeStackCounts(stackCounts.asMap(), writer, sortFrames)
         writer.close()
@@ -127,6 +137,7 @@ class JfrReportTool {
             h 'Help', longOpt: 'help'
             i 'Regexp include filter for methods', longOpt: 'include', args: 1, argName: 'filter'
             e 'Regexp exclude filter for methods', longOpt: 'exclude', args: 1, argName: 'filter'
+            g 'Regexp to include all stacks with match in any frame', longOpt: 'grep', args: 1, argName: 'filter'
             a 'Tool action', longOpt: 'action', args: 1, argName: 'action'
             o 'Output file', longOpt: 'output', args: 1, argName: 'file'
             w 'Width of flamegraph', longOpt: 'width', args: 1, argName: 'pixels'
@@ -149,6 +160,9 @@ class JfrReportTool {
         if (options.e) {
             jfrReportTool.excludeFilter = (options.e == 'none') ? null : Pattern.compile(options.e)
         }
+        if (options.g) {
+            jfrReportTool.grepFilter = Pattern.compile(options.g)
+        }
         if (options.w) {
             jfrReportTool.flameGraphWidth = options.w as int
         }
@@ -156,13 +170,21 @@ class JfrReportTool {
             jfrReportTool.flameGraphCommand = options.'flamegraph-command'
         }
         if (options.m) jfrReportTool.minimumSamples = options.m as int
-        def file = new File(options.arguments().first()).absoluteFile
-        def action = options.action ?: 'flameGraph'
-        def outputFile = (options.o) ? new File(String.valueOf(options.o)) : new File(file.parentFile, file.name + "." + (DEFAULT_EXTENSION[action] ?: 'svg'))
         if (options.s) jfrReportTool.sortFrames = true
-        println "Converting $file"
-        jfrReportTool."$action"(file, outputFile)
-        println "Output in ${outputFile}"
-        println "URL ${outputFile.canonicalFile.toURI().toURL()}"
+        def action = options.action ?: 'flameGraph'
+
+        Closure methodClosure = jfrReportTool.&"$action"
+        def file = new File(options.arguments().first()).absoluteFile
+        def outputFile = (options.o) ? new File(String.valueOf(options.o)) : new File(file.parentFile, file.name + "." + (DEFAULT_EXTENSION[action] ?: 'svg'))
+        if (methodClosure.maximumNumberOfParameters == 2) {
+            println "Converting $file"
+            methodClosure(file, outputFile)
+            println "Output in ${outputFile}"
+            println "URL ${outputFile.canonicalFile.toURI().toURL()}"
+        } else if (methodClosure.maximumNumberOfParameters == 1) {
+            methodClosure([input: file, output: outputFile, arguments: options.arguments(), options: options])
+        } else {
+            println "Unsupported action"
+        }
     }
 }
