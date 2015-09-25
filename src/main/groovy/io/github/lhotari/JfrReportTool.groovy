@@ -23,7 +23,7 @@ class JfrReportTool {
     Pattern excludeFilter = ~/^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)/
     Pattern includeFilter = null
     Pattern grepFilter = null
-    int flameGraphWidth = 5000
+    int flameGraphWidth = 1850
     String flameGraphCommand = "flamegraph.pl"
     boolean sortFrames = false
     int minimumSamples = 3
