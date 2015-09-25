@@ -25,6 +25,7 @@ class JfrReportTool {
     int flameGraphWidth = 5000
     String flameGraphCommand = "flamegraph.pl"
     boolean sortFrames = false
+    int minimumSamples = 3
 
     def flameGraph(File jfrFile, File outputFile) {
         ProcessBuilder builder = new ProcessBuilder(flameGraphCommand, "--width", flameGraphWidth.toString())
@@ -95,10 +96,12 @@ class JfrReportTool {
 
     private void writeStackCounts(Map<String, Long> map, Writer writer, boolean sort) {
         def writeEntry = { Map.Entry<String, Long> entry ->
-            writer.write entry.key
-            writer.write ' '
-            writer.write entry.value.toString()
-            writer.write '\n'
+            if (entry.value > minimumSamples) {
+                writer.write entry.key
+                writer.write ' '
+                writer.write entry.value.toString()
+                writer.write '\n'
+            }
         }
         sort ? map.collect { entry -> entry }.sort { a, b -> b.value <=> a.value }.each(writeEntry) : map.each(writeEntry)
     }
@@ -115,6 +118,7 @@ class JfrReportTool {
             w 'Width of flamegraph', longOpt: 'width', args: 1, argName: 'pixels'
             _ 'flamegraph.pl path', longOpt: 'flamegraph-command', args: 1, argName: 'cmd'
             s 'Sort frames', longOpt: 'sort'
+            m 'Minimum number of samples', longOpt: 'min', args: 1, argName: 'value'
         }
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
@@ -137,6 +141,7 @@ class JfrReportTool {
         if (options.'flamegraph-command') {
             jfrReportTool.flameGraphCommand = options.'flamegraph-command'
         }
+        if (options.m) jfrReportTool.minimumSamples = options.m as int
         def file = new File(options.arguments().first()).absoluteFile
         def action = options.action ?: 'flameGraph'
         def outputFile = (options.o) ? new File(String.valueOf(options.o)) : new File(file.parentFile, file.name + "." + (DEFAULT_EXTENSION[action] ?: 'svg'))
