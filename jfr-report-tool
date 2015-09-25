@@ -8,13 +8,13 @@ JARFILE="$DIR/build/libs/jfr-report-tool-all.jar"
 if [ ! -f "$JARFILE"  ]; then
     ( cd "$DIR" && ./gradlew shadowJar )
 fi
+FGCMDARG=""
 command -v flamegraph.pl >/dev/null 2>&1 || {
     if [ ! -f "$DIR/flamegraph.pl" ]; then
         echo "Fetching framegraph.pl"
         curl -O https://raw.githubusercontent.com/brendangregg/FlameGraph/master/flamegraph.pl
         chmod 0755 flamegraph.pl
     fi
+    FGCMDARG="--flamegraph-command=$DIR/flamegraph.pl"
 }
-FGCMDARG=""
-command -v flamegraph.pl >/dev/null 2>&1 || FGCMDARG="--flamegraph-command=$DIR/flamegraph.pl"
 $JAVA_HOME/bin/java -jar "$JARFILE" "$FGCMDARG" "$@"
