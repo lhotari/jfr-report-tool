@@ -19,14 +19,22 @@ Uses [flamegraph.pl](https://raw.githubusercontent.com/brendangregg/FlameGraph/m
 The script will build the tool on first access using `./gradlew shadowJar` command. It will also use `curl` to download [flamegraph.pl](https://raw.githubusercontent.com/brendangregg/FlameGraph/master/flamegraph.pl) if it's not available on `PATH`.
 
 ```
-usage: jfr-report-tool [-afhosw] [jfrFile]
+usage: jfr-report-tool [-aeghimosw] [jfrFile]
  -a,--action <action>            Tool action
- -f,--filter <filter>            Regexp filter for methods
+ -e,--exclude <filter>           Regexp exclude filter for methods
     --flamegraph-command <cmd>   flamegraph.pl path
+ -g,--grep <filter>              Regexp to include all stacks with match
+                                 in any frame
  -h,--help                       Help
+ -i,--include <filter>           Regexp include filter for methods
+ -m,--min <value>                Minimum number of samples
  -o,--output <file>              Output file
  -s,--sort                       Sort frames
  -w,--width <pixels>             Width of flamegraph
+Supported actions:
+flameGraph                       creates flamegraph in svg format, default action
+stacks                           creates flamegraph input file
+topframes                        shows top methods
 ```
 
 Example:
