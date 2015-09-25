@@ -85,7 +85,7 @@ class JfrReportTool {
 
             def filtered = stackTrace.findAll { matchesMethod(it) }
 
-            def flameGraphFormatted = filtered.join(';')
+            def flameGraphFormatted = filtered.reverse().join(';')
 
             stackCounts.incrementAndGet(flameGraphFormatted)
         }
