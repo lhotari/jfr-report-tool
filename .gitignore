@@ -1,0 +1,6 @@
+.gradle
+build/
+jfr-report-tool.iml
+jfr-report-tool.ipr
+jfr-report-tool.iws
+flamegraph.pl

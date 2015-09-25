@@ -1,0 +1,20 @@
+#!/bin/bash
+if [ -z "$JAVA_HOME" ]; then
+    echo "JAVA_HOME must point to Oracle JDK 1.7.0_40+"
+    exit 1
+fi
+DIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
+JARFILE="$DIR/build/libs/jfr-report-tool-all.jar"
+if [ ! -f "$JARFILE"  ]; then
+    ( cd "$DIR" && ./gradlew shadowJar )
+fi
+command -v flamegraph.pl >/dev/null 2>&1 || {
+    if [ ! -f "$DIR/flamegraph.pl" ]; then
+        echo "Fetching framegraph.pl"
+        curl -O https://raw.githubusercontent.com/brendangregg/FlameGraph/master/flamegraph.pl
+        chmod 0755 flamegraph.pl
+    fi
+}
+FGCMDARG=""
+command -v flamegraph.pl >/dev/null 2>&1 || FGCMDARG="--flamegraph-command=$DIR/flamegraph.pl"
+$JAVA_HOME/bin/java -jar "$JARFILE" "$FGCMDARG" "$@"
