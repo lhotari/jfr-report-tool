@@ -83,9 +83,7 @@ class JfrReportTool {
     }
 
     @ReportAction("dump info")
-    def dumpinfo(Map<String, Object> arguments) {
-        File jfrFile = (File) arguments.input
-
+    def dumpinfo(File jfrFile) {
         def recording = FlightRecordingLoader.loadFile(jfrFile)
         def view = recording.createView()
         view.setFilter(new IEventFilter() {
@@ -113,8 +111,7 @@ class JfrReportTool {
 
     @CompileDynamic
     @ReportAction("dump record types")
-    def recordtypes(Map<String, Object> arguments) {
-        File jfrFile = (File) arguments.input
+    def recordtypes(File jfrFile) {
         def recording = FlightRecordingLoader.loadFile(jfrFile)
         recording.m_repository.eventTypes.each { IEventType eventType ->
             println "${eventType.name.padRight(33)}$eventType.description"
@@ -317,14 +314,22 @@ class JfrReportTool {
         }
         println "Converting $file"
         try {
+            def methodParams = [input    : file,
+                                output   : outputFile,
+                                arguments: arguments,
+                                options  : options]
             if (methodClosure.maximumNumberOfParameters == 2) {
-                methodClosure(file, outputFile)
+                if (methodClosure.parameterTypes[1] == Map) {
+                    methodClosure(file, methodParams)
+                } else {
+                    methodClosure(file, outputFile)
+                }
             } else if (methodClosure.maximumNumberOfParameters == 1) {
-                def methodParams = [input    : file,
-                                    output   : outputFile,
-                                    arguments: arguments,
-                                    options  : options]
-                methodClosure(methodParams)
+                if (methodClosure.parameterTypes[0] == Map) {
+                    methodClosure(methodParams)
+                } else {
+                    methodClosure(file)
+                }
             } else {
                 println "Unsupported action"
             }
