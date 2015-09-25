@@ -208,6 +208,7 @@ class JfrReportTool {
     @CompileDynamic
     public static void main(String[] args) {
         def cli = new CliBuilder()
+        cli.stopAtNonOption = false
         def reportActions = scanReportActions(JfrReportTool)
         cli.with {
             h 'Help', longOpt: 'help'
@@ -225,7 +226,8 @@ class JfrReportTool {
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
         def options = cli.parse(args)
-        if (options.h || !options.arguments()) {
+        def arguments = options.arguments().findAll { it }
+        if (options.h || !arguments) {
             cli.usage()
             println "Supported actions:"
             reportActions.each { String action, String description ->
@@ -264,7 +266,7 @@ class JfrReportTool {
         }
 
         Closure methodClosure = jfrReportTool.&"$action"
-        def file = new File(options.arguments().first()).absoluteFile
+        def file = new File(arguments.first()).absoluteFile
         def outputFile = (options.o) ? new File(String.valueOf(options.o)) : new File(file.parentFile, file.name + "." + (DEFAULT_EXTENSION[action] ?: 'svg'))
         jfrReportTool.outputMessage = { File writtenFile ->
             println "Output in ${writtenFile}"
@@ -275,11 +277,11 @@ class JfrReportTool {
             if (methodClosure.maximumNumberOfParameters == 2) {
                 methodClosure(file, outputFile)
             } else if (methodClosure.maximumNumberOfParameters == 1) {
-                def arguments = [input    : file,
-                                 output   : outputFile,
-                                 arguments: options.arguments(),
-                                 options  : options]
-                methodClosure(arguments)
+                def methodParams = [input    : file,
+                                    output   : outputFile,
+                                    arguments: arguments,
+                                    options  : options]
+                methodClosure(methodParams)
             } else {
                 println "Unsupported action"
             }
