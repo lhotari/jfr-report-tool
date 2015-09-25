@@ -13,6 +13,7 @@ import groovy.transform.CompileStatic
 import groovy.transform.stc.ClosureParams
 import groovy.transform.stc.SimpleType
 
+import java.lang.reflect.Method
 import java.util.regex.Pattern
 
 @CompileStatic
@@ -28,6 +29,7 @@ class JfrReportTool {
     boolean sortFrames = false
     int minimumSamples = 3
 
+    @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
         ProcessBuilder builder = new ProcessBuilder(flameGraphCommand, "--width", flameGraphWidth.toString())
         builder.redirectOutput(outputFile)
@@ -35,12 +37,14 @@ class JfrReportTool {
         convertToFlameGraphFormat(jfrFile, new OutputStreamWriter(process.getOutputStream()))
     }
 
+    @ReportAction("creates flamegraph input file")
     def stacks(File jfrFile, File outputFile) {
         outputFile.withWriter { writer ->
             convertToFlameGraphFormat(jfrFile, writer)
         }
     }
 
+    @ReportAction("shows top methods")
     def topframes(File jfrFile, File outputFile) {
         outputFile.withWriter { writer ->
             AtomicLongMap<String> methodCounts = AtomicLongMap.create()
@@ -130,9 +134,21 @@ class JfrReportTool {
         s
     }
 
+    static Map<String, String> scanReportActions(Class clazz) {
+        Map<String, String> reportActions = [:]
+        clazz.getDeclaredMethods().each { Method method ->
+            ReportAction reportAction = method.getAnnotation(ReportAction)
+            if (reportAction) {
+                reportActions.put(method.name, reportAction.value())
+            }
+        }
+        reportActions
+    }
+
     @CompileDynamic
     public static void main(String[] args) {
         def cli = new CliBuilder()
+        def reportActions = scanReportActions(JfrReportTool)
         cli.with {
             h 'Help', longOpt: 'help'
             i 'Regexp include filter for methods', longOpt: 'include', args: 1, argName: 'filter'
@@ -150,7 +166,18 @@ class JfrReportTool {
         def options = cli.parse(args)
         if (options.h || !options.arguments()) {
             cli.usage()
+            println "Supported actions:"
+            reportActions.each { String action, String description ->
+                println "${action.padRight(33)}${description}"
+            }
             return
+        }
+
+        def action = options.action ?: 'flameGraph'
+
+        if (!reportActions.containsKey(action)) {
+            println "Unknown action $action"
+            System.exit(1)
         }
 
         def jfrReportTool = new JfrReportTool()
@@ -171,7 +198,6 @@ class JfrReportTool {
         }
         if (options.m) jfrReportTool.minimumSamples = options.m as int
         if (options.s) jfrReportTool.sortFrames = true
-        def action = options.action ?: 'flameGraph'
 
         Closure methodClosure = jfrReportTool.&"$action"
         def file = new File(options.arguments().first()).absoluteFile
@@ -188,3 +214,5 @@ class JfrReportTool {
         }
     }
 }
+
+
