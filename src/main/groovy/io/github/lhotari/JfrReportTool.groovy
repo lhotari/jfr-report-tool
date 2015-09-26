@@ -193,8 +193,8 @@ class JfrReportTool {
         forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace ->
             def stackTrace = flrStackTrace.frames.collect { frame ->
                 // getHumanReadable(boolean showReturnValue, boolean useQualifiedReturnValue, boolean showClassName, boolean useQualifiedClassName, boolean showArguments, boolean useQualifiedArguments)
-                ((IMCFrame) frame).method.getHumanReadable(false, true, true, true, true, true)
-            }
+                ((IMCFrame) frame).method?.getHumanReadable(false, true, true, true, true, true)
+            }?.findAll { it }
             if (matchesGrepFilter(stackTrace)) {
                 def filtered = stackTrace.findAll { matchesMethod(it) }
 
