@@ -33,6 +33,7 @@ class JfrReportTool {
     boolean reverse = false
     int begin
     int length
+    boolean firstSplit
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
@@ -159,11 +160,11 @@ class JfrReportTool {
         } else {
             fullRangeEnd = fullRange.endTimestamp
         }
-        def windowDuration = timeWindowDuration > 0 ? TimeUnit.SECONDS.toNanos(timeWindowDuration) : (fullRangeEnd - startTime)
+        long windowDuration = timeWindowDuration > 0 ? TimeUnit.SECONDS.toNanos(timeWindowDuration) : (fullRangeEnd - startTime)
         int fileNumber
         while (startTime < fullRangeEnd) {
             fileNumber++
-            long endTime = startTime + windowDuration
+            long endTime = startTime + ((firstSplit && fileNumber == 1 ? windowDuration / 2 : windowDuration) as long)
             IView view = createView(recording)
             view.setRange(new TimeRange(startTime, endTime))
             handler(view, fileNumber)
@@ -272,6 +273,7 @@ class JfrReportTool {
             s 'Sort frames', longOpt: 'sort'
             m 'Minimum number of samples', longOpt: 'min', args: 1, argName: 'value'
             d 'Duration of time window, splits output in to multiple files', longOpt: 'duration', args: 1, argName: 'seconds'
+            f 'First window duration half of given duration', longOpt: 'first-split'
             r 'Process stacks in reverse order', longOpt: 'reverse'
             b 'Begin time', longOpt: 'begin', args: 1, argName: 'seconds'
             l 'Length of selected time', longOpt: 'length', args: 1, argName: 'seconds'
@@ -326,6 +328,9 @@ class JfrReportTool {
         }
         if (options.l) {
             jfrReportTool.length = options.l as int
+        }
+        if (options.f) {
+            jfrReportTool.firstSplit = true
         }
 
         Closure methodClosure = jfrReportTool.&"$action"
