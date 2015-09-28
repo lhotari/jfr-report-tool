@@ -68,10 +68,7 @@ class JfrReportTool {
         handleRecordingByWindowByFile(jfrFile, outputFile) { IView view, File currentOutputFile ->
             AtomicLongMap<String> methodCounts = AtomicLongMap.create()
             forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace ->
-                def stackTrace = flrStackTrace.frames.collect { frame ->
-                    // getHumanReadable(boolean showReturnValue, boolean useQualifiedReturnValue, boolean showClassName, boolean useQualifiedClassName, boolean showArguments, boolean useQualifiedArguments)
-                    ((IMCFrame) frame).method.getHumanReadable(false, true, true, true, true, true)
-                }
+                List<String> stackTrace = convertStackTrace(flrStackTrace)
                 if (matchesGrepFilter(stackTrace)) {
                     stackTrace.each { String methodSignature ->
                         if (matchesMethod(methodSignature)) {
@@ -173,7 +170,7 @@ class JfrReportTool {
     }
 
     boolean matchesGrepFilter(List<String> stackTrace) {
-        grepFilter == null || stackTrace.any { String methodSignature -> methodSignature =~ grepFilter }
+        grepFilter == null || stackTrace.any { String methodSignature -> methodSignature && methodSignature =~ grepFilter }
     }
 
     private boolean matchesMethod(String methodSignature) {
@@ -201,10 +198,7 @@ class JfrReportTool {
     def convertToFlameGraphFormat(IView view, Writer writer) {
         AtomicLongMap<String> stackCounts = AtomicLongMap.create()
         forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace ->
-            def stackTrace = flrStackTrace.frames.collect { frame ->
-                // getHumanReadable(boolean showReturnValue, boolean useQualifiedReturnValue, boolean showClassName, boolean useQualifiedClassName, boolean showArguments, boolean useQualifiedArguments)
-                ((IMCFrame) frame).method?.getHumanReadable(false, true, true, true, true, true)
-            }?.findAll { it }
+            def stackTrace = convertStackTrace(flrStackTrace)
             if (matchesGrepFilter(stackTrace)) {
                 def filtered = stackTrace.findAll { matchesMethod(it) }
                 if (!reverse) {
@@ -217,6 +211,17 @@ class JfrReportTool {
             }
         }
         writeStackCounts(stackCounts.asMap(), writer, sortFrames)
+    }
+
+    private List<String> convertStackTrace(FLRStackTrace flrStackTrace) {
+        flrStackTrace.frames.collect { frame ->
+            convertToMethodSignature((IMCFrame) frame)
+        }?.findAll { it }
+    }
+
+    String convertToMethodSignature(IMCFrame frame) {
+        // getHumanReadable(boolean showReturnValue, boolean useQualifiedReturnValue, boolean showClassName, boolean useQualifiedClassName, boolean showArguments, boolean useQualifiedArguments)
+        frame.method?.getHumanReadable(false, true, true, true, true, true)
     }
 
     private void writeStackCounts(Map<String, Long> map, Writer writer, boolean sort) {
