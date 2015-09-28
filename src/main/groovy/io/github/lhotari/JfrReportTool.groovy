@@ -31,6 +31,8 @@ class JfrReportTool {
     int timeWindowDuration = -1
     Closure<?> outputMessage = {}
     boolean reverse = false
+    int begin
+    int length
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
@@ -150,10 +152,16 @@ class JfrReportTool {
     void handleRecordingByWindow(File jfrFile, Closure<?> handler) {
         def recording = FlightRecordingLoader.loadFile(jfrFile)
         def fullRange = recording.timeRange
-        long startTime = fullRange.startTimestamp
-        def windowDuration = timeWindowDuration > 0 ? TimeUnit.SECONDS.toNanos(timeWindowDuration) : fullRange.duration
+        long startTime = fullRange.startTimestamp + TimeUnit.SECONDS.toNanos(begin)
+        long fullRangeEnd
+        if (length > 0) {
+            fullRangeEnd = startTime + TimeUnit.SECONDS.toNanos(length)
+        } else {
+            fullRangeEnd = fullRange.endTimestamp
+        }
+        def windowDuration = timeWindowDuration > 0 ? TimeUnit.SECONDS.toNanos(timeWindowDuration) : (fullRangeEnd - startTime)
         int fileNumber
-        while (startTime < fullRange.endTimestamp) {
+        while (startTime < fullRangeEnd) {
             fileNumber++
             long endTime = startTime + windowDuration
             IView view = createView(recording)
@@ -265,6 +273,9 @@ class JfrReportTool {
             m 'Minimum number of samples', longOpt: 'min', args: 1, argName: 'value'
             d 'Duration of time window, splits output in to multiple files', longOpt: 'duration', args: 1, argName: 'seconds'
             r 'Process stacks in reverse order', longOpt: 'reverse'
+            b 'Begin time', longOpt: 'begin', args: 1, argName: 'seconds'
+            l 'Length of selected time', longOpt: 'length', args: 1, argName: 'seconds'
+
         }
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
@@ -309,6 +320,12 @@ class JfrReportTool {
         }
         if (options.r) {
             jfrReportTool.reverse = true
+        }
+        if (options.b) {
+            jfrReportTool.begin = options.b as int
+        }
+        if (options.l) {
+            jfrReportTool.length = options.l as int
         }
 
         Closure methodClosure = jfrReportTool.&"$action"
