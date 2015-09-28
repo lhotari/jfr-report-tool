@@ -47,8 +47,20 @@ dumpinfo                         dump info
 recordtypes                      dump record types
 ```
 
-Example:
+### Examples
+
+This creates a file `jfr_dump_file.jfr.svg` that is the flamegraph in SVG format. SVG files can be opened with most web browsers.
 ```
 ./jfr-report-tool jfr_dump_file.jfr
 ```
-This creates a file `jfr_dump_file.jfr.svg` that is the flamegraph in SVG format. SVG files can be opened with most web browsers.
+
+Disabling default filtering:
+```
+./jfr-report-tool -e none -m 1 jfr_dump_file.jfr
+```
+By default, the tool removes all methods matching `^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)` so that you can view hotspots in your own code. Use "-e none" to disable method filtering. By default, all stacks with 1 or 2 samples will be filtered. You can disable this be setting the `min` parameter to 1.
+
+
+
+
+
