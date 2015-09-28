@@ -30,6 +30,7 @@ class JfrReportTool {
     int minimumSamples = 3
     int timeWindowDuration = -1
     Closure<?> outputMessage = {}
+    boolean reverse = false
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
@@ -197,8 +198,11 @@ class JfrReportTool {
             }?.findAll { it }
             if (matchesGrepFilter(stackTrace)) {
                 def filtered = stackTrace.findAll { matchesMethod(it) }
+                if (!reverse) {
+                    filtered = filtered.reverse()
+                }
 
-                def flameGraphFormatted = filtered.reverse().collect { formatMethodName(it) }.join(';')
+                def flameGraphFormatted = filtered.collect { formatMethodName(it) }.join(';')
 
                 stackCounts.incrementAndGet(flameGraphFormatted)
             }
@@ -260,6 +264,7 @@ class JfrReportTool {
             s 'Sort frames', longOpt: 'sort'
             m 'Minimum number of samples', longOpt: 'min', args: 1, argName: 'value'
             d 'Duration of time window, splits output in to multiple files', longOpt: 'duration', args: 1, argName: 'seconds'
+            r 'Process stacks in reverse order', longOpt: 'reverse'
         }
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
@@ -301,6 +306,9 @@ class JfrReportTool {
         if (options.s) jfrReportTool.sortFrames = true
         if (options.d) {
             jfrReportTool.timeWindowDuration = options.d as int
+        }
+        if (options.r) {
+            jfrReportTool.reverse = true
         }
 
         Closure methodClosure = jfrReportTool.&"$action"
