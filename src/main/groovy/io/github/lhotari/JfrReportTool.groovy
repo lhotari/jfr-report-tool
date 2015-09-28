@@ -335,7 +335,7 @@ class JfrReportTool {
 
         Closure methodClosure = jfrReportTool.&"$action"
         def file = new File(arguments.first()).absoluteFile
-        def outputFile = (options.o) ? new File(String.valueOf(options.o)) : new File(file.parentFile, file.name + "." + (DEFAULT_EXTENSION[action] ?: 'svg'))
+        def outputFile = (options.o) ? new File(String.valueOf(options.o)).getAbsoluteFile() : new File(file.parentFile, file.name + "." + (DEFAULT_EXTENSION[action] ?: 'svg'))
         def allFiles = []
         jfrReportTool.outputMessage = { File writtenFile ->
             println "Output in ${writtenFile}"
