@@ -38,19 +38,22 @@ class JfrReportTool {
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
         handleRecordingByWindowByFile(jfrFile, outputFile) { IView view, File currentOutputFile ->
-            StringWriter stringWriter = new StringWriter(10000)
-            convertToFlameGraphFormat(view, stringWriter)
-            if (stringWriter.getBuffer().length()) {
+            File tempFile = File.createTempFile("flamegraph_input", ".txt")
+            def entryCount = tempFile.withWriter { writer ->
+                convertToFlameGraphFormat(view, writer)
+            }
+            if (entryCount) {
                 ProcessBuilder builder = new ProcessBuilder(flameGraphCommand, "--width", flameGraphWidth.toString())
                 def dateFormatter = { new Date(((it as long) / 1000000L).longValue()).format("yyyy-MM-dd HH:mm:ss") }
-                builder.command().add("--title='Duration ${dateFormatter(view.range.startTimestamp)} - ${dateFormatter(view.range.endTimestamp)}'".toString())
+                builder.command().with {
+                    add("--title='Duration ${dateFormatter(view.range.startTimestamp)} - ${dateFormatter(view.range.endTimestamp)}'".toString())
+                    add(tempFile.absolutePath)
+                }
                 builder.redirectOutput(currentOutputFile)
                 Process process = builder.start()
-                def writer = new OutputStreamWriter(process.getOutputStream())
-                writer << stringWriter.getBuffer()
-                writer.close()
                 process.waitFor()
             }
+            tempFile.delete()
         }
     }
 
@@ -195,7 +198,7 @@ class JfrReportTool {
         view
     }
 
-    def convertToFlameGraphFormat(IView view, Writer writer) {
+    int convertToFlameGraphFormat(IView view, Writer writer) {
         AtomicLongMap<String> stackCounts = AtomicLongMap.create()
         forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace ->
             def stackTrace = convertStackTrace(flrStackTrace)
@@ -224,16 +227,19 @@ class JfrReportTool {
         frame.method?.getHumanReadable(false, true, true, true, true, true)
     }
 
-    private void writeStackCounts(Map<String, Long> map, Writer writer, boolean sort) {
+    private int writeStackCounts(Map<String, Long> map, Writer writer, boolean sort) {
+        def counter = 0
         def writeEntry = { Map.Entry<String, Long> entry ->
             if (entry.value > minimumSamples) {
                 writer.write entry.key
                 writer.write ' '
                 writer.write entry.value.toString()
                 writer.write '\n'
+                counter++
             }
         }
         sort ? map.collect { entry -> entry }.sort { a, b -> b.value <=> a.value }.each(writeEntry) : map.each(writeEntry)
+        counter
     }
 
     String formatMethodName(String s) {
