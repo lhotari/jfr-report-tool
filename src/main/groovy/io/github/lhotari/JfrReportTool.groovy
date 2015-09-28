@@ -374,14 +374,21 @@ class JfrReportTool {
     File createIndexFile(List<File> allFiles) {
         File firstFile = allFiles[0]
         File indexFile = new File(firstFile.getParentFile() ?: new File(''), firstFile.getName() + ".html")
-        indexFile.text = """
+        indexFile.withWriter { writer ->
+            writer << """
 <html>
 <head><title>Index of generated files</title></head>
 <body>
-${allFiles.collect { "<a href='${it.toURI().toURL()}'>$it.name</a><br/>" }.join("\n")}
-<body>
-</html>
 """
+            allFiles.each { file ->
+                def fileurl = file.toURI().toURL()
+                writer << "<a href='${fileurl}'>$file.name</a><br/>\n"
+                if (file.name.endsWith(".svg")) {
+                    writer << "<img src='${fileurl}' border=0 />\n"
+                }
+            }
+            writer << "</body></html>\n"
+        }
         indexFile
     }
 }
