@@ -314,7 +314,7 @@ class JfrReportTool {
         if (options.i) {
             jfrReportTool.includeFilter = Pattern.compile(options.i)
         }
-        if (options.e != null) {
+        if (options.e) {
             jfrReportTool.excludeFilter = (options.e == 'none' || options.e == '') ? null : Pattern.compile(options.e)
         }
         if (options.g) {
