@@ -61,6 +61,66 @@ Disabling default filtering:
 By default, the tool removes all methods matching `^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)` so that you can view hotspots in your own code. Use "-e none" to disable method filtering. By default, all stacks with 1 or 2 samples will be filtered. You can disable this be setting the `min` parameter to 1.
 
 
+## Java Flight Recorder
+
+### Enabling Java Flight Recorder
+
+Add these JVM startup parameters
+```
+-XX:+UnlockCommercialFeatures -XX:+FlightRecorder -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints
+```
+
+Add this option to start recording from the start and create a dump on exit to the current directory:
+```
+-XX:FlightRecorderOptions=defaultrecording=true,settings=profile,disk=true,maxsize=500M,dumponexit=true'
+```
+This uses $JAVA_HOME/jre/lib/jfr/profile.jfc settings which has method sampling enabled.
+
+
+### Controlling Java Flight Recorder at runtime from command line
+
+`jcmd` is used to control JFR.
+
+Help for all `jcmd` commands:
+```
+jcmd <PID> help
+```
+You can use `jps` to find the process id (PID) of the java process you want to profile.
+
+The available commands are `JFR.stop`, `JFR.start`, `JFR.dump`, `JFR.check`
+
+Help for `JFR.start`
+```
+jcmd <PID> help JFR.start
+```
+
+### Creating a recording by jcmd
+
+starting recording with setting from $JAVA_HOME/jre/lib/jfr/profile.jfc
+```
+jcmd <PID> JFR.start name=myrecording settings=profile
+```
+
+dumping to file and continuing recording
+```
+jcmd <PID> JFR.dump name=myrecording filename=$PWD/mydump.jfr
+```
+
+### Customizing profiling settings
+
+It's recommended to create a custom JFR settings file with highest sampling rate (10ms). [profiling.jfc](https://github.com/lhotari/gradle-profiling/blob/master/jfr/profiling.jfc) example.
+You can use the Java Mission Control UI to edit JFR setting files. The feature is called "Java Flight Recording Template Manager".
+
+### Controlling Java Flight Recorder at runtime from graphical user interface
+
+Use `jmc` command to start the Java Mission Control UI. The UI can be used to do recordings.
+
+
+
+
+
+
+
 
 
 
