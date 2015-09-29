@@ -1,4 +1,6 @@
 # jfr-report-tool
+[![Build Status](https://travis-ci.org/lhotari/jfr-report-tool.svg?branch=master)](https://travis-ci.org/lhotari/jfr-report-tool)
+
 Tool for creating reports from Java Flight Recorder dumps.
 
 Influenced by https://github.com/chrishantha/jfr-flame-graph . Kudos to @chrishantha for the great work.
