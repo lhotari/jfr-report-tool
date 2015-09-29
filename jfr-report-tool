@@ -11,9 +11,12 @@ fi
 FGCMDARG=""
 command -v flamegraph.pl >/dev/null 2>&1 || {
     if [ ! -f "$DIR/flamegraph.pl" ]; then
+        (
+        cd "$DIR"
         echo "Fetching framegraph.pl"
         curl -O https://raw.githubusercontent.com/brendangregg/FlameGraph/master/flamegraph.pl
         chmod 0755 flamegraph.pl
+        )
     fi
     FGCMDARG="--flamegraph-command=$DIR/flamegraph.pl"
 }
