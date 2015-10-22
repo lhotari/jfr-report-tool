@@ -24,6 +24,7 @@ class JfrReportTool {
     Pattern excludeFilter = ~/^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)/
     Pattern includeFilter = null
     Pattern grepFilter = null
+    Pattern cutOffFilter = null
     int flameGraphWidth = 1850
     String flameGraphCommand = "flamegraph.pl"
     boolean sortFrames = false
@@ -203,7 +204,19 @@ class JfrReportTool {
         forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace ->
             def stackTrace = convertStackTrace(flrStackTrace)
             if (matchesGrepFilter(stackTrace)) {
-                def filtered = stackTrace.findAll { matchesMethod(it) }
+                def filtered = stackTrace
+                if (cutOffFilter != null) {
+                    int cutOffMatchIndex = -1
+                    filtered.eachWithIndex { String entry, index ->
+                        if (entry =~ cutOffFilter) {
+                            cutOffMatchIndex = index
+                        }
+                    }
+                    if (cutOffMatchIndex > -1) {
+                        filtered = filtered.subList(0, cutOffMatchIndex)
+                    }
+                }
+                filtered = filtered.findAll { matchesMethod(it) }
                 if (!reverse) {
                     filtered = filtered.reverse()
                 }
@@ -288,7 +301,7 @@ class JfrReportTool {
             r 'Process stacks in reverse order', longOpt: 'reverse'
             b 'Begin time', longOpt: 'begin', args: 1, argName: 'seconds'
             l 'Length of selected time', longOpt: 'length', args: 1, argName: 'seconds'
-
+            c 'Cut off frame pattern', longOpt: 'cutoff', args: 1, argName: 'pattern'
         }
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
@@ -342,6 +355,9 @@ class JfrReportTool {
         }
         if (options.f) {
             jfrReportTool.firstSplit = true
+        }
+        if (options.c) {
+            jfrReportTool.cutOffFilter = Pattern.compile(options.c)
         }
 
         Closure methodClosure = jfrReportTool.&"$action"
