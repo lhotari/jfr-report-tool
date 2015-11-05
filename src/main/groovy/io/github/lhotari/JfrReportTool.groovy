@@ -207,11 +207,8 @@ class JfrReportTool {
             if (matchesGrepFilter(stackTrace)) {
                 def filtered = stackTrace
                 if (cutOffFilter != null) {
-                    int cutOffMatchIndex = -1
-                    filtered.eachWithIndex { String entry, index ->
-                        if (entry =~ cutOffFilter) {
-                            cutOffMatchIndex = index
-                        }
+                    int cutOffMatchIndex = filtered.findIndexOf  { String entry ->
+                        entry =~ cutOffFilter
                     }
                     if (cutOffMatchIndex > -1) {
                         filtered = filtered.subList(0, cutOffMatchIndex)
