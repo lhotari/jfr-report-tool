@@ -29,6 +29,7 @@ class JfrReportTool {
     String flameGraphCommand = "flamegraph.pl"
     boolean sortFrames = false
     int minimumSamples = 3
+    int minimumSamplesFrameDepth = 5
     int timeWindowDuration = -1
     Closure<?> outputMessage = {}
     boolean reverse = false
@@ -200,7 +201,7 @@ class JfrReportTool {
     }
 
     int convertToFlameGraphFormat(IView view, Writer writer) {
-        AtomicLongMap<String> stackCounts = AtomicLongMap.create()
+        StackTraceRoots root = new StackTraceRoots()
         forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace ->
             def stackTrace = convertStackTrace(flrStackTrace)
             if (matchesGrepFilter(stackTrace)) {
@@ -217,17 +218,43 @@ class JfrReportTool {
                     }
                 }
                 filtered = filtered.findAll { matchesMethod(it) }
-                if (!reverse) {
-                    filtered = filtered.reverse()
+
+                if (filtered) {
+                    if (!reverse) {
+                        filtered = filtered.reverse()
+                    }
+                    root.addStackTrace(filtered, minimumSamplesFrameDepth)
                 }
-
-                def flameGraphFormatted = filtered.collect { formatMethodName(it) }.join(';')
-
-                stackCounts.incrementAndGet(flameGraphFormatted)
             }
         }
+
+        AtomicLongMap<String> stackCounts = AtomicLongMap.create()
+        for (List<List<String>> listOfStacks : root.roots.values()) {
+            if (listOfStacks.size() > minimumSamples) {
+                for (List<String> stackTraceFrames : listOfStacks) {
+                    def flameGraphFormatted = stackTraceFrames.collect { formatMethodName(it) }.join(';')
+                    stackCounts.incrementAndGet(flameGraphFormatted)
+                }
+            }
+        }
+
         writeStackCounts(stackCounts.asMap(), writer, sortFrames)
     }
+
+    static class StackTraceRoots {
+        Map<String, List<List<String>>> roots = new HashMap<String, List<List<String>>>()
+
+        void addStackTrace(List<String> frames, int minimumSamplesFrameDepth) {
+            String rootKey = frames.take(minimumSamplesFrameDepth).join(';')
+            List<List<String>> listOfStacks = roots.get(rootKey)
+            if (listOfStacks == null) {
+                listOfStacks = new ArrayList<List<String>>()
+                roots.put(rootKey, listOfStacks)
+            }
+            listOfStacks.add(frames)
+        }
+    }
+
 
     private List<String> convertStackTrace(FLRStackTrace flrStackTrace) {
         flrStackTrace.frames.collect { frame ->
@@ -243,13 +270,11 @@ class JfrReportTool {
     private int writeStackCounts(Map<String, Long> map, Writer writer, boolean sort) {
         def counter = 0
         def writeEntry = { Map.Entry<String, Long> entry ->
-            if (entry.value > minimumSamples) {
-                writer.write entry.key
-                writer.write ' '
-                writer.write entry.value.toString()
-                writer.write '\n'
-                counter++
-            }
+            writer.write entry.key
+            writer.write ' '
+            writer.write entry.value.toString()
+            writer.write '\n'
+            counter++
         }
         sort ? map.collect { entry -> entry }.sort { a, b -> b.value <=> a.value }.each(writeEntry) : map.each(writeEntry)
         counter
@@ -296,6 +321,7 @@ class JfrReportTool {
             _ 'flamegraph.pl path', longOpt: 'flamegraph-command', args: 1, argName: 'cmd'
             s 'Sort frames', longOpt: 'sort'
             m 'Minimum number of samples', longOpt: 'min', args: 1, argName: 'value'
+            _ 'Minimum samples sum taken at frame depth', longOpt: 'min-samples-frame-depth', args: 1, argName: 'value'
             d 'Duration of time window, splits output in to multiple files', longOpt: 'duration', args: 1, argName: 'seconds'
             f 'First window duration half of given duration', longOpt: 'first-split'
             r 'Process stacks in reverse order', longOpt: 'reverse'
@@ -340,6 +366,7 @@ class JfrReportTool {
             jfrReportTool.flameGraphCommand = options.'flamegraph-command'
         }
         if (options.m) jfrReportTool.minimumSamples = options.m as int
+        if (options.'min-samples-frame-depth') jfrReportTool.minimumSamplesFrameDepth = options.'min-samples-frame-depth' as int
         if (options.s) jfrReportTool.sortFrames = true
         if (options.d) {
             jfrReportTool.timeWindowDuration = options.d as int
