@@ -22,8 +22,13 @@ class JfrReportTool {
     final Map<String, String> DEFAULT_EXTENSION = [flameGraph: 'svg', stacks: 'txt', topframes: 'top.txt']
     private static final String SAMPLING_EVENT_PATH = "vm/prof/execution_sample"
     private static final String JVM_INFO_EVENT_PATH = "vm/info"
+    private static final String OS_INFO_EVENT_PATH = "os/information"
+    private static final String CPU_INFO_EVENT_PATH = "os/processor/cpu_information"
+    private static final String MEM_INFO_EVENT_PATH = "os/memory/physical_memory"
     private static
-    final Set<String> FILTERED_EVENT_PATHS = [SAMPLING_EVENT_PATH, JVM_INFO_EVENT_PATH] as Set
+    final Set<String> FILTERED_EVENT_PATHS = [SAMPLING_EVENT_PATH, JVM_INFO_EVENT_PATH, OS_INFO_EVENT_PATH, CPU_INFO_EVENT_PATH, MEM_INFO_EVENT_PATH] as Set
+    private static
+    final Set<String> INFO_EVENT_PATHS = [JVM_INFO_EVENT_PATH, OS_INFO_EVENT_PATH, CPU_INFO_EVENT_PATH, MEM_INFO_EVENT_PATH] as Set
     Pattern excludeFilter = ~/^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)/
     Pattern includeFilter = null
     Pattern grepFilter = null
@@ -41,7 +46,7 @@ class JfrReportTool {
     int length
     boolean firstSplit
     int stackTracesTruncated
-    IEvent jvmInfoEvent
+    Map<String, IEvent> infoEvents = [:]
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
@@ -66,6 +71,17 @@ class JfrReportTool {
             }
             tempFile.delete()
         }
+        if (infoEvents) {
+            File descriptionFile = new File(outputFile.getParentFile(), outputFile.getName() + ".info.txt")
+            descriptionFile.withPrintWriter { PrintWriter writer ->
+                for (String eventTypePath : INFO_EVENT_PATHS) {
+                    IEvent event = infoEvents.get(eventTypePath)
+                    if (event != null) {
+                        printEventFields(event, writer)
+                    }
+                }
+            }
+        }
     }
 
     private String buildTitle(IView view) {
@@ -74,14 +90,9 @@ class JfrReportTool {
         }
         def titleBuilder = new StringBuilder()
         titleBuilder.append("Started ${dateFormatter(view.range.startTimestamp)}")
+        IEvent jvmInfoEvent = infoEvents.get(JVM_INFO_EVENT_PATH)
         if (jvmInfoEvent != null) {
             titleBuilder.append(" ")
-            def cmdLineArgs = jvmInfoEvent.getValue("jvmArguments")
-            if (cmdLineArgs) {
-                titleBuilder.append("JVM args: ")
-                titleBuilder.append(cmdLineArgs)
-                titleBuilder.append(" ")
-            }
             def appArgs = jvmInfoEvent.getValue("javaArguments")
             if (appArgs) {
                 titleBuilder.append("App args:")
@@ -131,21 +142,26 @@ class JfrReportTool {
             }
         })
         Set<String> seen = [] as Set
+        PrintWriter pw = new PrintWriter(System.out)
         for (IEvent event : view) {
             String eventTypeName = event.eventType.name
             if (!seen.contains(eventTypeName)) {
-                Map<String, Object> fields = [:]
-                event.eventType.getFields().each { IField field ->
-                    fields[field.name] = field.getValue(event)
-                }
-                println event.eventType.name
-                fields.each { k, v ->
-                    println "${k.padRight(20)} $v"
-                }
-                println()
+                printEventFields(event, pw)
                 seen.add(eventTypeName)
             }
         }
+    }
+
+    private void printEventFields(IEvent event, PrintWriter out) {
+        Map<String, Object> fields = [:]
+        event.eventType.getFields().each { IField field ->
+            fields[field.name] = field.getValue(event)
+        }
+        out.println event.eventType.name
+        fields.each { k, v ->
+            out.println "${k.padRight(20)} $v"
+        }
+        out.println()
     }
 
     @CompileDynamic
@@ -218,8 +234,9 @@ class JfrReportTool {
     void forEachFLRStackTrace(IView view,
                               @ClosureParams(value = SimpleType, options = "com.jrockit.mc.flightrecorder.internal.model.FLRStackTrace") Closure<?> handler) {
         for (IEvent event : view) {
-            if (event.eventType.path == JVM_INFO_EVENT_PATH) {
-                jvmInfoEvent = event
+            def eventTypePath = event.eventType.path
+            if (eventTypePath in INFO_EVENT_PATHS) {
+                infoEvents.put(eventTypePath, event)
             } else {
                 FLRStackTrace flrStackTrace = (FLRStackTrace) event.getValue("(stackTrace)")
                 if (flrStackTrace != null) {
