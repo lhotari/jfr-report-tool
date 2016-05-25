@@ -27,6 +27,7 @@ class JfrReportTool {
     Pattern cutOffFilter = null
     int flameGraphWidth = 1850
     String flameGraphCommand = "flamegraph.pl"
+    boolean compressPackageNames = true
     boolean sortFrames = false
     int minimumSamples = 3
     int minimumSamplesFrameDepth = 5
@@ -46,7 +47,9 @@ class JfrReportTool {
             }
             if (entryCount) {
                 ProcessBuilder builder = new ProcessBuilder(flameGraphCommand, "--width", flameGraphWidth.toString())
-                def dateFormatter = { new Date(((it as long) / 1000000L).longValue()).format("yyyy-MM-dd HH:mm:ss") }
+                def dateFormatter = {
+                    new Date(((it as long) / 1000000L).longValue()).format("yyyy-MM-dd HH:mm:ss")
+                }
                 builder.command().with {
                     add("--title='Duration ${dateFormatter(view.range.startTimestamp)} - ${dateFormatter(view.range.endTimestamp)}'".toString())
                     add(tempFile.absolutePath)
@@ -207,7 +210,7 @@ class JfrReportTool {
             if (matchesGrepFilter(stackTrace)) {
                 def filtered = stackTrace
                 if (cutOffFilter != null) {
-                    int cutOffMatchIndex = filtered.findIndexOf  { String entry ->
+                    int cutOffMatchIndex = filtered.findIndexOf { String entry ->
                         entry =~ cutOffFilter
                     }
                     if (cutOffMatchIndex > -1) {
@@ -229,7 +232,9 @@ class JfrReportTool {
         for (List<List<String>> listOfStacks : root.roots.values()) {
             if (listOfStacks.size() > minimumSamples) {
                 for (List<String> stackTraceFrames : listOfStacks) {
-                    def flameGraphFormatted = stackTraceFrames.collect { formatMethodName(it) }.join(';')
+                    def flameGraphFormatted = stackTraceFrames.collect {
+                        formatMethodName(it)
+                    }.join(';')
                     stackCounts.incrementAndGet(flameGraphFormatted)
                 }
             }
@@ -278,15 +283,17 @@ class JfrReportTool {
     }
 
     String formatMethodName(String s) {
-        List<String> m = (List<String>) (s =~ /^(.*?)\((.*)\)$/).find { it }
-        if (m) {
-            return { String classAndMethod, String arguments ->
-                def compactMethod = classAndMethod.split(/\./).takeRight(3).join('.')
-                def compactArgs = arguments.split(/, /).collect { String argType ->
-                    argType.split(/\./).last()
-                }.join(', ')
-                "$compactMethod(${compactArgs ?: ''})".toString()
-            }(m[1], m[2])
+        if (compressPackageNames) {
+            List<String> m = (List<String>) (s =~ /^(.*?)\((.*)\)$/).find { it }
+            if (m) {
+                return { String classAndMethod, String arguments ->
+                    def compactMethod = classAndMethod.split(/\./).takeRight(3).join('.')
+                    def compactArgs = arguments.split(/, /).collect { String argType ->
+                        argType.split(/\./).last()
+                    }.join(', ')
+                    "$compactMethod(${compactArgs ?: ''})".toString()
+                }(m[1], m[2])
+            }
         }
         s
     }
@@ -325,6 +332,7 @@ class JfrReportTool {
             b 'Begin time', longOpt: 'begin', args: 1, argName: 'seconds'
             l 'Length of selected time', longOpt: 'length', args: 1, argName: 'seconds'
             c 'Cut off frame pattern', longOpt: 'cutoff', args: 1, argName: 'pattern'
+            n 'Don\'t compress package names', longOpt: 'no-compress'
         }
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
@@ -382,6 +390,9 @@ class JfrReportTool {
         }
         if (options.c) {
             jfrReportTool.cutOffFilter = Pattern.compile(options.c)
+        }
+        if (options.n) {
+            jfrReportTool.compressPackageNames = false
         }
 
         Closure methodClosure = jfrReportTool.&"$action"
