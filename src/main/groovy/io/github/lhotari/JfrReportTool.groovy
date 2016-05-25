@@ -37,6 +37,7 @@ class JfrReportTool {
     int begin
     int length
     boolean firstSplit
+    int stackTracesTruncated
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
@@ -46,6 +47,9 @@ class JfrReportTool {
                 convertToFlameGraphFormat(view, writer)
             }
             if (entryCount) {
+                if (stackTracesTruncated) {
+                    println "WARNING: Some stacktraces ($stackTracesTruncated) were truncated. Use stacktrace=1024 JFR option in recording to fix this."
+                }
                 ProcessBuilder builder = new ProcessBuilder(flameGraphCommand, "--width", flameGraphWidth.toString())
                 def dateFormatter = {
                     new Date(((it as long) / 1000000L).longValue()).format("yyyy-MM-dd HH:mm:ss")
@@ -189,6 +193,9 @@ class JfrReportTool {
                               @ClosureParams(value = SimpleType, options = "com.jrockit.mc.flightrecorder.internal.model.FLRStackTrace") Closure<?> handler) {
         for (IEvent event : view) {
             FLRStackTrace flrStackTrace = (FLRStackTrace) event.getValue("(stackTrace)")
+            if (flrStackTrace?.truncationState?.isTruncated()) {
+                stackTracesTruncated++
+            }
             handler(flrStackTrace)
         }
     }
