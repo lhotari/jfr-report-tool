@@ -20,7 +20,10 @@ import java.util.regex.Pattern
 class JfrReportTool {
     private static
     final Map<String, String> DEFAULT_EXTENSION = [flameGraph: 'svg', stacks: 'txt', topframes: 'top.txt']
-    private static final String SAMPLING_EVENT_TYPE = "Method Profiling Sample"
+    private static final String SAMPLING_EVENT_PATH = "vm/prof/execution_sample"
+    private static final String JVM_INFO_EVENT_PATH = "vm/info"
+    private static
+    final Set<String> FILTERED_EVENT_PATHS = [SAMPLING_EVENT_PATH, JVM_INFO_EVENT_PATH] as Set
     Pattern excludeFilter = ~/^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)/
     Pattern includeFilter = null
     Pattern grepFilter = null
@@ -38,6 +41,7 @@ class JfrReportTool {
     int length
     boolean firstSplit
     int stackTracesTruncated
+    IEvent jvmInfoEvent
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
@@ -51,11 +55,9 @@ class JfrReportTool {
                     println "WARNING: Some stacktraces ($stackTracesTruncated) were truncated. Use stacktrace=1024 JFR option in recording to fix this."
                 }
                 ProcessBuilder builder = new ProcessBuilder(flameGraphCommand, "--width", flameGraphWidth.toString())
-                def dateFormatter = {
-                    new Date(((it as long) / 1000000L).longValue()).format("yyyy-MM-dd HH:mm:ss")
-                }
                 builder.command().with {
-                    add("--title='Duration ${dateFormatter(view.range.startTimestamp)} - ${dateFormatter(view.range.endTimestamp)}'".toString())
+                    add('--title')
+                    add(buildTitle(view))
                     add(tempFile.absolutePath)
                 }
                 builder.redirectOutput(currentOutputFile)
@@ -64,6 +66,30 @@ class JfrReportTool {
             }
             tempFile.delete()
         }
+    }
+
+    private String buildTitle(IView view) {
+        def dateFormatter = {
+            new Date(((it as long) / 1000000L).longValue()).format("yyyy-MM-dd HH:mm:ss")
+        }
+        def titleBuilder = new StringBuilder()
+        titleBuilder.append("Started ${dateFormatter(view.range.startTimestamp)}")
+        if (jvmInfoEvent != null) {
+            titleBuilder.append(" ")
+            def cmdLineArgs = jvmInfoEvent.getValue("jvmArguments")
+            if (cmdLineArgs) {
+                titleBuilder.append("JVM args: ")
+                titleBuilder.append(cmdLineArgs)
+                titleBuilder.append(" ")
+            }
+            def appArgs = jvmInfoEvent.getValue("javaArguments")
+            if (appArgs) {
+                titleBuilder.append("App args:")
+                titleBuilder.append(appArgs)
+                titleBuilder.append(" ")
+            }
+        }
+        titleBuilder.toString()
     }
 
     @ReportAction("creates flamegraph input file")
@@ -192,11 +218,17 @@ class JfrReportTool {
     void forEachFLRStackTrace(IView view,
                               @ClosureParams(value = SimpleType, options = "com.jrockit.mc.flightrecorder.internal.model.FLRStackTrace") Closure<?> handler) {
         for (IEvent event : view) {
-            FLRStackTrace flrStackTrace = (FLRStackTrace) event.getValue("(stackTrace)")
-            if (flrStackTrace?.truncationState?.isTruncated()) {
-                stackTracesTruncated++
+            if (event.eventType.path == JVM_INFO_EVENT_PATH) {
+                jvmInfoEvent = event
+            } else {
+                FLRStackTrace flrStackTrace = (FLRStackTrace) event.getValue("(stackTrace)")
+                if (flrStackTrace != null) {
+                    if (flrStackTrace.truncationState?.isTruncated()) {
+                        stackTracesTruncated++
+                    }
+                    handler(flrStackTrace)
+                }
             }
-            handler(flrStackTrace)
         }
     }
 
@@ -204,7 +236,7 @@ class JfrReportTool {
         IView view = recording.createView()
         view.setFilter(new IEventFilter() {
             boolean accept(IEvent iEvent) {
-                iEvent.eventType.name == SAMPLING_EVENT_TYPE
+                iEvent.eventType.path in FILTERED_EVENT_PATHS
             }
         })
         view
