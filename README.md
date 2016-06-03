@@ -69,12 +69,12 @@ By default, the tool removes all methods matching `^(java\.|sun\.|com\.sun\.|org
 
 Add these JVM startup parameters
 ```
--XX:+UnlockCommercialFeatures -XX:+FlightRecorder -XX:FlightRecorderOptions=stackdepth=1024 -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints
+-XX:+UnlockCommercialFeatures -XX:+FlightRecorder -XX:+UnlockDiagnosticVMOptions -XX:+DebugNonSafepoints -XX:FlightRecorderOptions=stackdepth=1024
 ```
 
-Add this option to start recording from the start and create a dump on exit to the current directory:
+Use this `FlightRecorderOptions` parameter to start recording from the start and create a dump on exit to the current directory:
 ```
--XX:FlightRecorderOptions=defaultrecording=true,settings=profile,disk=true,maxsize=500M,stackdepth=1024,dumponexit=true'
+-XX:FlightRecorderOptions=defaultrecording=true,settings=profile,disk=true,maxsize=500M,stackdepth=1024,dumponexit=true
 ```
 This uses $JAVA_HOME/jre/lib/jfr/profile.jfc settings which has method sampling enabled.
 
