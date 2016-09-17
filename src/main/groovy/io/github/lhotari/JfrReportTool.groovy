@@ -25,10 +25,9 @@ class JfrReportTool {
     private static final String OS_INFO_EVENT_PATH = "os/information"
     private static final String CPU_INFO_EVENT_PATH = "os/processor/cpu_information"
     private static final String MEM_INFO_EVENT_PATH = "os/memory/physical_memory"
-    private static
-    final Set<String> FILTERED_EVENT_PATHS = [SAMPLING_EVENT_PATH, JVM_INFO_EVENT_PATH, OS_INFO_EVENT_PATH, CPU_INFO_EVENT_PATH, MEM_INFO_EVENT_PATH] as Set
-    private static
-    final Set<String> INFO_EVENT_PATHS = [JVM_INFO_EVENT_PATH, OS_INFO_EVENT_PATH, CPU_INFO_EVENT_PATH, MEM_INFO_EVENT_PATH] as Set
+    private static final String RECORDING_LOST_EVENT_PATH = "recordings/buffer_lost"
+    private static final Set<String> INFO_EVENT_PATHS = [JVM_INFO_EVENT_PATH, OS_INFO_EVENT_PATH, CPU_INFO_EVENT_PATH, MEM_INFO_EVENT_PATH, RECORDING_LOST_EVENT_PATH] as Set
+    private static final Set<String> FILTERED_EVENT_PATHS = ([SAMPLING_EVENT_PATH] as Set) + INFO_EVENT_PATHS
     Pattern excludeFilter = ~/^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)/
     Pattern includeFilter = null
     Pattern grepFilter = null
@@ -47,6 +46,7 @@ class JfrReportTool {
     boolean firstSplit
     int stackTracesTruncated
     Map<String, IEvent> infoEvents = [:]
+    int recordingBuffersLost = 0
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
@@ -79,6 +79,9 @@ class JfrReportTool {
                     if (event != null) {
                         printEventFields(event, writer)
                     }
+                }
+                if (recordingBuffersLost) {
+                    writer.println("${recordingBuffersLost} recording buffers lost.")
                 }
             }
         }
@@ -236,7 +239,11 @@ class JfrReportTool {
         for (IEvent event : view) {
             def eventTypePath = event.eventType.path
             if (eventTypePath in INFO_EVENT_PATHS) {
-                infoEvents.put(eventTypePath, event)
+                if (eventTypePath == RECORDING_LOST_EVENT_PATH) {
+                    recordingBuffersLost++
+                } else {
+                    infoEvents.put(eventTypePath, event)
+                }
             } else {
                 FLRStackTrace flrStackTrace = (FLRStackTrace) event.getValue("(stackTrace)")
                 if (flrStackTrace != null) {
