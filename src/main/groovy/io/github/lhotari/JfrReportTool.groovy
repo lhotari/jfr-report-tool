@@ -141,7 +141,7 @@ class JfrReportTool {
         def view = recording.createView()
         view.setFilter(new IEventFilter() {
             boolean accept(IEvent iEvent) {
-                iEvent.eventType.name in ['JVM Information', 'OS Information', 'CPU Information', 'Physical Memory']
+                iEvent.eventType.path in INFO_EVENT_PATHS
             }
         })
         Set<String> seen = [] as Set
