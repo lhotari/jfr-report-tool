@@ -149,20 +149,18 @@ class JfrReportTool {
         for (IEvent event : view) {
             String eventTypeName = event.eventType.name
             if (!seen.contains(eventTypeName)) {
-                printEventFields(event, pw)
+                printEventFields(event, pw, true)
                 seen.add(eventTypeName)
             }
         }
     }
 
-    private void printEventFields(IEvent event, PrintWriter out) {
-        Map<String, Object> fields = [:]
-        event.eventType.getFields().each { IField field ->
-            fields[field.name] = field.getValue(event)
-        }
-        out.println event.eventType.name
-        fields.each { k, v ->
-            out.println "${k.padRight(20)} $v"
+    private void printEventFields(IEvent event, PrintWriter out, boolean showTypeInfo = false) {
+        def eventType = event.eventType
+        out.println "${eventType.name.padRight(33)}${showTypeInfo ? eventType.path.padRight(33) : ''}$eventType.description"
+        eventType.getFields().each { IField field ->
+            def fieldValue = field.getValue(event)
+            out.println "${field.name.padRight(33)}${showTypeInfo ? field.identifier.padRight(33) : ''}${showTypeInfo ? fieldValue?.getClass()?.getSimpleName()?.padRight(20) : ''}${fieldValue}"
         }
         out.println()
     }
