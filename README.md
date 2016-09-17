@@ -76,7 +76,7 @@ By default, the tool removes all methods matching `^(java\.|sun\.|com\.sun\.|org
 To visualize allocations, there is a new feature to render a flamegraph where each stacktrace is weighted with the allocation size made in each method. It uses the JFR `java/object_alloc_in_new_TLAB` and `java/object_alloc_outside_TLAB` events to get allocation data. These events are enabled when using `settings=profile` in `FlightRecorderOptions`.
 
 ```
-./jfr-report-tool --allocations -e none -m 1 jfr_dump_file.jfr
+./jfr-report-tool --allocations jfr_dump_file.jfr
 ```
 
 ## Java Flight Recorder

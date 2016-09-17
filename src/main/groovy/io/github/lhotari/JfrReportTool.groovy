@@ -454,6 +454,9 @@ class JfrReportTool {
         }
 
         def jfrReportTool = new JfrReportTool()
+        if (options.allocations) {
+            jfrReportTool.useAllocationFlameGraph()
+        }
         if (options.i) {
             jfrReportTool.includeFilter = Pattern.compile(options.i)
         }
@@ -492,9 +495,6 @@ class JfrReportTool {
         }
         if (options.n) {
             jfrReportTool.compressPackageNames = false
-        }
-        if (options.allocations) {
-            jfrReportTool.useAllocationFlameGraph()
         }
 
         Closure methodClosure = jfrReportTool.&"$action"
@@ -547,6 +547,8 @@ class JfrReportTool {
         filteredEventPaths = [ALLOCATION_IN_TLAB_EVENT_PATH, ALLOCATION_OUTSIDE_TLAB_EVENT_PATH] as Set
         filteredEventPaths.addAll(INFO_EVENT_PATHS)
         allocationFlamegraph = true
+        excludeFilter = null
+        minimumSamples = 1
     }
 
     File createIndexFile(List<File> allFiles) {
