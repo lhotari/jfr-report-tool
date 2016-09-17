@@ -173,8 +173,8 @@ class JfrReportTool {
         }
     }
 
-    void handleRecordingByWindowByFile(File jfrFile, File outputFile, Closure<?> handler) {
-        handleRecordingByWindow(jfrFile) { IView view, int fileNumber ->
+    void handleRecordingByWindowByFile(File jfrFile, File outputFile, Set<String> acceptedEventTypes = FILTERED_EVENT_PATHS, Closure<?> handler) {
+        handleRecordingByWindow(jfrFile, acceptedEventTypes) { IView view, int fileNumber ->
             File currentOutputFile
             if (fileNumber > 1) {
                 currentOutputFile = createNewFileName(fileNumber, outputFile)
@@ -201,7 +201,7 @@ class JfrReportTool {
         new File(templateFile.getParentFile() ?: new File(''), fileName)
     }
 
-    void handleRecordingByWindow(File jfrFile, Closure<?> handler) {
+    void handleRecordingByWindow(File jfrFile, Set<String> acceptedEventTypes, Closure<?> handler) {
         def recording = FlightRecordingLoader.loadFile(jfrFile)
         def fullRange = recording.timeRange
         long startTime = fullRange.startTimestamp + TimeUnit.SECONDS.toNanos(begin)
@@ -216,7 +216,7 @@ class JfrReportTool {
         while (startTime < fullRangeEnd) {
             fileNumber++
             long endTime = startTime + ((firstSplit && fileNumber == 1 ? windowDuration / 2 : windowDuration) as long)
-            IView view = createView(recording)
+            IView view = createView(recording, acceptedEventTypes)
             view.setRange(new TimeRange(startTime, endTime))
             handler(view, fileNumber)
             startTime = endTime + 1
@@ -249,13 +249,15 @@ class JfrReportTool {
         }
     }
 
-    private IView createView(FlightRecording recording) {
+    private IView createView(FlightRecording recording, Set<String> acceptedEventTypes) {
         IView view = recording.createView()
-        view.setFilter(new IEventFilter() {
-            boolean accept(IEvent iEvent) {
-                iEvent.eventType.path in FILTERED_EVENT_PATHS
-            }
-        })
+        if (acceptedEventTypes) {
+            view.setFilter(new IEventFilter() {
+                boolean accept(IEvent iEvent) {
+                    iEvent.eventType.path in acceptedEventTypes
+                }
+            })
+        }
         view
     }
 
