@@ -21,26 +21,32 @@ Uses [flamegraph.pl](https://raw.githubusercontent.com/brendangregg/FlameGraph/m
 The script will build the tool on first access using `./gradlew shadowJar` command. It will also use `curl` to download [flamegraph.pl](https://raw.githubusercontent.com/brendangregg/FlameGraph/master/flamegraph.pl) if it's not available on `PATH`.
 
 ```
-usage: jfr-report-tool [-abdefghilmorsw] [jfrFile]
- -a,--action <action>            Tool action. Valid choices: flameGraph,
-                                 stacks, topframes, dumpinfo, recordtypes
- -b,--begin <seconds>            Begin time
- -d,--duration <seconds>         Duration of time window, splits output in
-                                 to multiple files
- -e,--exclude <filter>           Regexp exclude filter for methods
- -f,--first-split                First window duration half of given
-                                 duration
-    --flamegraph-command <cmd>   flamegraph.pl path
- -g,--grep <filter>              Regexp to include all stacks with match
-                                 in any frame
- -h,--help                       Help
- -i,--include <filter>           Regexp include filter for methods
- -l,--length <seconds>           Length of selected time
- -m,--min <value>                Minimum number of samples
- -o,--output <file>              Output file
- -r,--reverse                    Process stacks in reverse order
- -s,--sort                       Sort frames
- -w,--width <pixels>             Width of flamegraph
+usage: jfr-report-tool [-abcdefghilmnorsw] [jfrFile]
+ -a,--action <action>                   Tool action. Valid choices:
+                                        flameGraph, stacks, topframes,
+                                        dumpinfo, recordtypes
+    --allocations                       Allocation flamegraph
+ -b,--begin <seconds>                   Begin time
+ -c,--cutoff <pattern>                  Cut off frame pattern
+ -d,--duration <seconds>                Duration of time window, splits
+                                        output in to multiple files
+ -e,--exclude <filter>                  Regexp exclude filter for methods
+ -f,--first-split                       First window duration half of
+                                        given duration
+    --flamegraph-command <cmd>          flamegraph.pl path
+ -g,--grep <filter>                     Regexp to include all stacks with
+                                        match in any frame
+ -h,--help                              Help
+ -i,--include <filter>                  Regexp include filter for methods
+ -l,--length <seconds>                  Length of selected time
+ -m,--min <value>                       Minimum number of samples
+    --min-samples-frame-depth <value>   Minimum samples sum taken at frame
+                                        depth
+ -n,--no-compress                       Don't compress package names
+ -o,--output <file>                     Output file
+ -r,--reverse                           Process stacks in reverse order
+ -s,--sort                              Sort frames
+ -w,--width <pixels>                    Width of flamegraph
 Supported actions:
 flameGraph                       creates flamegraph in svg format, default action
 stacks                           creates flamegraph input file
@@ -51,17 +57,27 @@ recordtypes                      dump record types
 
 ### Examples
 
+#### Flamegraph
+
 This creates a file `jfr_dump_file.jfr.svg` that is the flamegraph in SVG format. SVG files can be opened with most web browsers.
 ```
 ./jfr-report-tool jfr_dump_file.jfr
 ```
 
-Disabling default filtering:
+#### Disabling default filtering
+
 ```
 ./jfr-report-tool -e none -m 1 jfr_dump_file.jfr
 ```
 By default, the tool removes all methods matching `^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)` so that you can view hotspots in your own code. Use "-e none" to disable method filtering. By default, all stacks with 1 or 2 samples will be filtered. You can disable this be setting the `min` parameter to 1.
 
+#### Allocations flamegraph
+
+To visualize allocations, there is a new feature to render a flamegraph where each stacktrace is weighted with the allocation size made in each method. It uses the JFR `java/object_alloc_in_new_TLAB` and `java/object_alloc_outside_TLAB` events to get allocation data. These events are enabled when using `settings=profile` in `FlightRecorderOptions`.
+
+```
+./jfr-report-tool --allocations -e none -m 1 jfr_dump_file.jfr
+```
 
 ## Java Flight Recorder
 

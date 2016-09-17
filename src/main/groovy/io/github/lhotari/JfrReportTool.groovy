@@ -9,6 +9,7 @@ import com.jrockit.mc.flightrecorder.spi.*
 import com.jrockit.mc.flightrecorder.util.TimeRange
 import groovy.transform.CompileDynamic
 import groovy.transform.CompileStatic
+import groovy.transform.TupleConstructor
 import groovy.transform.stc.ClosureParams
 import groovy.transform.stc.SimpleType
 
@@ -26,8 +27,11 @@ class JfrReportTool {
     private static final String CPU_INFO_EVENT_PATH = "os/processor/cpu_information"
     private static final String MEM_INFO_EVENT_PATH = "os/memory/physical_memory"
     private static final String RECORDING_LOST_EVENT_PATH = "recordings/buffer_lost"
-    private static final Set<String> INFO_EVENT_PATHS = [JVM_INFO_EVENT_PATH, OS_INFO_EVENT_PATH, CPU_INFO_EVENT_PATH, MEM_INFO_EVENT_PATH, RECORDING_LOST_EVENT_PATH] as Set
-    private static final Set<String> FILTERED_EVENT_PATHS = ([SAMPLING_EVENT_PATH] as Set) + INFO_EVENT_PATHS
+    private static final String ALLOCATION_IN_TLAB_EVENT_PATH = "java/object_alloc_in_new_TLAB"
+    private static final String ALLOCATION_OUTSIDE_TLAB_EVENT_PATH = "java/object_alloc_outside_TLAB"
+    private static
+    final Set<String> INFO_EVENT_PATHS = [JVM_INFO_EVENT_PATH, OS_INFO_EVENT_PATH, CPU_INFO_EVENT_PATH, MEM_INFO_EVENT_PATH, RECORDING_LOST_EVENT_PATH] as Set
+    private Set<String> filteredEventPaths = ([SAMPLING_EVENT_PATH] as Set) + INFO_EVENT_PATHS
     Pattern excludeFilter = ~/^(java\.|sun\.|com\.sun\.|org\.codehaus\.groovy\.|groovy\.|org\.apache\.)/
     Pattern includeFilter = null
     Pattern grepFilter = null
@@ -47,6 +51,7 @@ class JfrReportTool {
     int stackTracesTruncated
     Map<String, IEvent> infoEvents = [:]
     int recordingBuffersLost = 0
+    boolean allocationFlamegraph = false
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
@@ -92,6 +97,9 @@ class JfrReportTool {
             new Date(((it as long) / 1000000L).longValue()).format("yyyy-MM-dd HH:mm:ss")
         }
         def titleBuilder = new StringBuilder()
+        if (allocationFlamegraph) {
+            titleBuilder.append("Allocations ")
+        }
         titleBuilder.append("Started ${dateFormatter(view.range.startTimestamp)}")
         IEvent jvmInfoEvent = infoEvents.get(JVM_INFO_EVENT_PATH)
         if (jvmInfoEvent != null) {
@@ -119,7 +127,7 @@ class JfrReportTool {
     def topframes(File jfrFile, File outputFile) {
         handleRecordingByWindowByFile(jfrFile, outputFile) { IView view, File currentOutputFile ->
             AtomicLongMap<String> methodCounts = AtomicLongMap.create()
-            forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace ->
+            forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace, IEvent event ->
                 List<String> stackTrace = convertStackTrace(flrStackTrace)
                 if (matchesGrepFilter(stackTrace)) {
                     stackTrace.each { String methodSignature ->
@@ -174,7 +182,7 @@ class JfrReportTool {
         }
     }
 
-    void handleRecordingByWindowByFile(File jfrFile, File outputFile, Set<String> acceptedEventTypes = FILTERED_EVENT_PATHS, Closure<?> handler) {
+    void handleRecordingByWindowByFile(File jfrFile, File outputFile, Set<String> acceptedEventTypes = filteredEventPaths, Closure<?> handler) {
         handleRecordingByWindow(jfrFile, acceptedEventTypes) { IView view, int fileNumber ->
             File currentOutputFile
             if (fileNumber > 1) {
@@ -233,25 +241,31 @@ class JfrReportTool {
     }
 
     void forEachFLRStackTrace(IView view,
-                              @ClosureParams(value = SimpleType, options = "com.jrockit.mc.flightrecorder.internal.model.FLRStackTrace") Closure<?> handler) {
+                              @ClosureParams(value = SimpleType, options = ["com.jrockit.mc.flightrecorder.internal.model.FLRStackTrace", "com.jrockit.mc.flightrecorder.spi.IEvent"]) Closure<?> handler) {
         for (IEvent event : view) {
-            def eventTypePath = event.eventType.path
-            if (eventTypePath in INFO_EVENT_PATHS) {
-                if (eventTypePath == RECORDING_LOST_EVENT_PATH) {
-                    recordingBuffersLost++
-                } else {
-                    infoEvents.put(eventTypePath, event)
-                }
-            } else {
+            if (!handleInfoEvents(event)) {
                 FLRStackTrace flrStackTrace = (FLRStackTrace) event.getValue("(stackTrace)")
                 if (flrStackTrace != null) {
                     if (flrStackTrace.truncationState?.isTruncated()) {
                         stackTracesTruncated++
                     }
-                    handler(flrStackTrace)
+                    handler(flrStackTrace, event)
                 }
             }
         }
+    }
+
+    private boolean handleInfoEvents(IEvent event) {
+        def eventTypePath = event.eventType.path
+        if (eventTypePath in INFO_EVENT_PATHS) {
+            if (eventTypePath == RECORDING_LOST_EVENT_PATH) {
+                recordingBuffersLost++
+            } else {
+                infoEvents.put(eventTypePath, event)
+            }
+            return true
+        }
+        return false
     }
 
     private IView createView(FlightRecording recording, Set<String> acceptedEventTypes) {
@@ -268,8 +282,13 @@ class JfrReportTool {
 
     int convertToFlameGraphFormat(IView view, Writer writer) {
         StackTraceRoots root = new StackTraceRoots()
-        forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace ->
+        forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace, IEvent event ->
             def stackTrace = convertStackTrace(flrStackTrace)
+            long weight = 1
+            if (allocationFlamegraph) {
+                weight = (Long) event.getValue("allocationSize")
+            }
+
             if (matchesGrepFilter(stackTrace)) {
                 def filtered = stackTrace
                 if (cutOffFilter != null) {
@@ -286,19 +305,19 @@ class JfrReportTool {
                     if (!reverse) {
                         filtered = filtered.reverse()
                     }
-                    root.addStackTrace(filtered, minimumSamplesFrameDepth)
+                    root.addStackTrace(filtered, minimumSamplesFrameDepth, weight)
                 }
             }
         }
 
         AtomicLongMap<String> stackCounts = AtomicLongMap.create()
-        for (List<List<String>> listOfStacks : root.roots.values()) {
-            if (listOfStacks.size() > minimumSamples) {
-                for (List<String> stackTraceFrames : listOfStacks) {
-                    def flameGraphFormatted = stackTraceFrames.collect {
+        for (StackTraceRoot listOfStacks : root.roots.values()) {
+            if (listOfStacks.stacks.size() > minimumSamples) {
+                for (StackTraceEntry stackTraceFrames : listOfStacks.stacks) {
+                    def flameGraphFormatted = stackTraceFrames.frames.collect {
                         formatMethodName(it)
                     }.join(';')
-                    stackCounts.incrementAndGet(flameGraphFormatted)
+                    stackCounts.addAndGet(flameGraphFormatted, stackTraceFrames.weight)
                 }
             }
         }
@@ -306,20 +325,36 @@ class JfrReportTool {
         writeStackCounts(stackCounts.asMap(), writer, sortFrames)
     }
 
+    @CompileStatic
     static class StackTraceRoots {
-        Map<String, List<List<String>>> roots = new HashMap<String, List<List<String>>>()
+        Map<String, StackTraceRoot> roots = new HashMap<String, StackTraceRoot>()
 
-        void addStackTrace(List<String> frames, int minimumSamplesFrameDepth) {
+        void addStackTrace(List<String> frames, int minimumSamplesFrameDepth, long weight) {
             String rootKey = frames.take(minimumSamplesFrameDepth).join(';')
-            List<List<String>> listOfStacks = roots.get(rootKey)
+            StackTraceRoot listOfStacks = roots.get(rootKey)
             if (listOfStacks == null) {
-                listOfStacks = new ArrayList<List<String>>()
+                listOfStacks = new StackTraceRoot()
                 roots.put(rootKey, listOfStacks)
             }
-            listOfStacks.add(frames)
+            listOfStacks.addStack(frames, weight)
         }
     }
 
+    @CompileStatic
+    static class StackTraceRoot {
+        List<StackTraceEntry> stacks = []
+
+        void addStack(List<String> frames, long weight) {
+            stacks.add(new StackTraceEntry(frames, weight))
+        }
+    }
+
+    @CompileStatic
+    @TupleConstructor
+    static class StackTraceEntry {
+        List<String> frames
+        long weight
+    }
 
     private List<String> convertStackTrace(FLRStackTrace flrStackTrace) {
         flrStackTrace.frames.collect { frame ->
@@ -396,6 +431,7 @@ class JfrReportTool {
             l 'Length of selected time', longOpt: 'length', args: 1, argName: 'seconds'
             c 'Cut off frame pattern', longOpt: 'cutoff', args: 1, argName: 'pattern'
             n 'Don\'t compress package names', longOpt: 'no-compress'
+            _ 'Allocation flamegraph', longOpt: 'allocations'
         }
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
@@ -457,10 +493,13 @@ class JfrReportTool {
         if (options.n) {
             jfrReportTool.compressPackageNames = false
         }
+        if (options.allocations) {
+            jfrReportTool.useAllocationFlameGraph()
+        }
 
         Closure methodClosure = jfrReportTool.&"$action"
         def file = new File(arguments.first()).absoluteFile
-        def outputFile = (options.o) ? new File(String.valueOf(options.o)).getAbsoluteFile() : new File(file.parentFile, file.name + "." + (DEFAULT_EXTENSION[action] ?: 'svg'))
+        def outputFile = (options.o) ? new File(String.valueOf(options.o)).getAbsoluteFile() : new File(file.parentFile, file.name + "." + resolveExtension(action, jfrReportTool))
         def allFiles = []
         jfrReportTool.outputMessage = { File writtenFile ->
             println "Output in ${writtenFile}"
@@ -494,6 +533,20 @@ class JfrReportTool {
         } catch (Throwable t) {
             t.printStackTrace()
         }
+    }
+
+    private static String resolveExtension(String action, JfrReportTool jfrReportTool) {
+        def extension = DEFAULT_EXTENSION[action] ?: 'svg'
+        if (jfrReportTool.allocationFlamegraph) {
+            extension = 'allocations.' + extension
+        }
+        extension
+    }
+
+    def useAllocationFlameGraph() {
+        filteredEventPaths = [ALLOCATION_IN_TLAB_EVENT_PATH, ALLOCATION_OUTSIDE_TLAB_EVENT_PATH] as Set
+        filteredEventPaths.addAll(INFO_EVENT_PATHS)
+        allocationFlamegraph = true
     }
 
     File createIndexFile(List<File> allFiles) {
