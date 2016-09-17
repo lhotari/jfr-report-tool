@@ -169,7 +169,7 @@ class JfrReportTool {
     def recordtypes(File jfrFile) {
         def recording = FlightRecordingLoader.loadFile(jfrFile)
         recording.m_repository.eventTypes.each { IEventType eventType ->
-            println "${eventType.name.padRight(33)}$eventType.description"
+            println "${eventType.name.padRight(33)}${eventType.path.padRight(33)}$eventType.description"
         }
     }
 
