@@ -281,6 +281,7 @@ class JfrReportTool {
     }
 
     int convertToFlameGraphFormat(IView view, Writer writer) {
+        AtomicLongMap<String> stackCounts = AtomicLongMap.create()
         StackTraceRoots root = new StackTraceRoots()
         forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace, IEvent event ->
             def stackTrace = convertStackTrace(flrStackTrace)
@@ -305,24 +306,30 @@ class JfrReportTool {
                     if (!reverse) {
                         filtered = filtered.reverse()
                     }
-                    root.addStackTrace(filtered, minimumSamplesFrameDepth, weight)
+                    if (minimumSamples > 1) {
+                        root.addStackTrace(filtered, minimumSamplesFrameDepth, weight)
+                    } else {
+                        stackCounts.addAndGet(formatStackFrames(filtered), weight)
+                    }
                 }
             }
         }
 
-        AtomicLongMap<String> stackCounts = AtomicLongMap.create()
-        for (StackTraceRoot listOfStacks : root.roots.values()) {
-            if (listOfStacks.stacks.size() > minimumSamples) {
-                for (StackTraceEntry stackTraceFrames : listOfStacks.stacks) {
-                    def flameGraphFormatted = stackTraceFrames.frames.collect {
-                        formatMethodName(it)
-                    }.join(';')
-                    stackCounts.addAndGet(flameGraphFormatted, stackTraceFrames.weight)
+        if (minimumSamples > 1) {
+            for (StackTraceRoot listOfStacks : root.roots.values()) {
+                if (listOfStacks.stacks.size() > minimumSamples) {
+                    for (StackTraceEntry stackTraceFrames : listOfStacks.stacks) {
+                        stackCounts.addAndGet(formatStackFrames(stackTraceFrames.frames), stackTraceFrames.weight)
+                    }
                 }
             }
         }
 
         writeStackCounts(stackCounts.asMap(), writer, sortFrames)
+    }
+
+    private String formatStackFrames(List<String> frames) {
+        frames.collect { formatMethodName(it) }.join(';')
     }
 
     @CompileStatic
