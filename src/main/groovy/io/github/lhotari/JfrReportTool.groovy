@@ -445,6 +445,10 @@ class JfrReportTool {
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
         def options = cli.parse(args)
+        if (!options) {
+            return
+        }
+
         def arguments = options.arguments().findAll { it }
         if (options.h || !arguments) {
             cli.usage()
