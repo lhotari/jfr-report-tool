@@ -52,6 +52,7 @@ class JfrReportTool {
     Map<String, IEvent> infoEvents = [:]
     int recordingBuffersLost = 0
     boolean allocationFlamegraph = false
+    AllocationMethod allocationMethod
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
@@ -286,7 +287,7 @@ class JfrReportTool {
         forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace, IEvent event ->
             def stackTrace = convertStackTrace(flrStackTrace)
             long weight = 1
-            if (allocationFlamegraph) {
+            if (allocationFlamegraph && allocationMethod == AllocationMethod.SIZE) {
                 weight = (Long) event.getValue("allocationSize")
             }
 
@@ -439,6 +440,7 @@ class JfrReportTool {
             c 'Cut off frame pattern', longOpt: 'cutoff', args: 1, argName: 'pattern'
             n 'Don\'t compress package names', longOpt: 'no-compress'
             _ 'Allocation flamegraph', longOpt: 'allocations'
+            _ 'Allocation method', longOpt: 'allocation-method', args: 1, argName: 'method [size|count]'
         }
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
@@ -462,7 +464,7 @@ class JfrReportTool {
 
         def jfrReportTool = new JfrReportTool()
         if (options.allocations) {
-            jfrReportTool.useAllocationFlameGraph()
+            jfrReportTool.useAllocationFlameGraph(options.'allocation-method')
         }
         if (options.i) {
             jfrReportTool.includeFilter = Pattern.compile(options.i)
@@ -550,12 +552,17 @@ class JfrReportTool {
         extension
     }
 
-    def useAllocationFlameGraph() {
+    def useAllocationFlameGraph(String method) {
         filteredEventPaths = [ALLOCATION_IN_TLAB_EVENT_PATH, ALLOCATION_OUTSIDE_TLAB_EVENT_PATH] as Set
         filteredEventPaths.addAll(INFO_EVENT_PATHS)
         allocationFlamegraph = true
         excludeFilter = null
         minimumSamples = 1
+        allocationMethod = AllocationMethod.valueOf((method?:'size').toUpperCase())
+    }
+
+    enum AllocationMethod {
+        SIZE, COUNT
     }
 
     File createIndexFile(List<File> allFiles) {
