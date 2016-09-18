@@ -73,8 +73,13 @@ By default, the tool removes all methods matching `^(java\.|sun\.|com\.sun\.|org
 
 #### Allocations flamegraph
 
-To visualize allocations, there is a new feature to render a flamegraph where each stacktrace is weighted with the allocation size made in each method. It uses the JFR `java/object_alloc_in_new_TLAB` and `java/object_alloc_outside_TLAB` events to get allocation data. These events are enabled when using `settings=profile` in `FlightRecorderOptions`.
+To visualize allocations, there is a new feature to render a flamegraph where each stacktrace is weighted with the allocation size made in each method. It uses the JFR `java/object_alloc_in_new_TLAB` and `java/object_alloc_outside_TLAB` events to get allocation data. These events are enabled when using `settings=profile` in `FlightRecorderOptions`. 
 
+See [Allocation Profiling in Java Mission Control](http://hirt.se/blog/?p=381) blog post for explanation of the events. 
+
+>Note that we, in the case of the (inside) TLAB allocation events, are not emitting an event for each and every location – that would be way too expensive. We are instead creating an event for the first allocation in a new TLAB. This means that we get a sampling of sorts of the thread local allocations taking place.
+
+example
 ```
 ./jfr-report-tool --allocations jfr_dump_file.jfr
 ```
