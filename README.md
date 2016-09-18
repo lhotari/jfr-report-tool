@@ -79,7 +79,10 @@ See [Allocation Profiling in Java Mission Control](http://hirt.se/blog/?p=381) b
 
 >Note that we, in the case of the (inside) TLAB allocation events, are not emitting an event for each and every location – that would be way too expensive. We are instead creating an event for the first allocation in a new TLAB. This means that we get a sampling of sorts of the thread local allocations taking place.
 
-example
+Since `java/object_alloc_in_new_TLAB` only capture the first allocation in a new TLAB, the events won't show all allocations. It's possible to pass `-XX:-UseTLAB` to record all allocations, but this adds a lot of overhead
+to JFR profiling.
+
+example of visualizing allocations with a flamegraph
 ```
 ./jfr-report-tool --allocations jfr_dump_file.jfr
 ```
