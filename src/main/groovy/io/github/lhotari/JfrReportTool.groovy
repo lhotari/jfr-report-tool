@@ -468,7 +468,7 @@ class JfrReportTool {
 
         def jfrReportTool = new JfrReportTool()
         if (options.allocations) {
-            jfrReportTool.useAllocationFlameGraph(options.'allocation-method')
+            jfrReportTool.useAllocationFlameGraph(options.'allocation-method'?:'size')
         }
         if (options.i) {
             jfrReportTool.includeFilter = Pattern.compile(options.i)
@@ -562,7 +562,7 @@ class JfrReportTool {
         allocationFlamegraph = true
         excludeFilter = null
         minimumSamples = 1
-        allocationMethod = AllocationMethod.valueOf((method?:'size').toUpperCase())
+        allocationMethod = AllocationMethod.valueOf(method.toUpperCase())
     }
 
     enum AllocationMethod {
