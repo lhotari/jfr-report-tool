@@ -29,6 +29,8 @@ class JfrReportTool {
     private static final String RECORDING_LOST_EVENT_PATH = "recordings/buffer_lost"
     private static final String ALLOCATION_IN_TLAB_EVENT_PATH = "java/object_alloc_in_new_TLAB"
     private static final String ALLOCATION_OUTSIDE_TLAB_EVENT_PATH = "java/object_alloc_outside_TLAB"
+    private static final String EXCEPTION_THROW_EVENT_PATH = "java/exception_throw"
+    private static final String ERROR_THROW_EVENT_PATH = "java/error_throw"
     private static
     final Set<String> INFO_EVENT_PATHS = [JVM_INFO_EVENT_PATH, OS_INFO_EVENT_PATH, CPU_INFO_EVENT_PATH, MEM_INFO_EVENT_PATH, RECORDING_LOST_EVENT_PATH] as Set
     private Set<String> filteredEventPaths = ([SAMPLING_EVENT_PATH] as Set) + INFO_EVENT_PATHS
@@ -51,8 +53,14 @@ class JfrReportTool {
     int stackTracesTruncated
     Map<String, IEvent> infoEvents = [:]
     int recordingBuffersLost = 0
-    boolean allocationFlamegraph = false
+    FlameGraphType flameGraphType = FlameGraphType.DEFAULT
     AllocationMethod allocationMethod
+
+    enum FlameGraphType {
+        DEFAULT,
+        ALLOCATIONS,
+        EXCEPTIONS
+    }
 
     @ReportAction("creates flamegraph in svg format, default action")
     def flameGraph(File jfrFile, File outputFile) {
@@ -98,8 +106,8 @@ class JfrReportTool {
             new Date(((it as long) / 1000000L).longValue()).format("yyyy-MM-dd HH:mm:ss")
         }
         def titleBuilder = new StringBuilder()
-        if (allocationFlamegraph) {
-            titleBuilder.append("Allocations ")
+        if (flameGraphType != FlameGraphType.DEFAULT) {
+            titleBuilder.append(flameGraphType.toString().capitalize()).append(" ")
         }
         titleBuilder.append("Started ${dateFormatter(view.range.startTimestamp)}")
         IEvent jvmInfoEvent = infoEvents.get(JVM_INFO_EVENT_PATH)
@@ -287,7 +295,7 @@ class JfrReportTool {
         forEachFLRStackTrace(view) { FLRStackTrace flrStackTrace, IEvent event ->
             def stackTrace = convertStackTrace(flrStackTrace)
             long weight = 1
-            if (allocationFlamegraph && allocationMethod == AllocationMethod.SIZE) {
+            if (flameGraphType == FlameGraphType.ALLOCATIONS && allocationMethod == AllocationMethod.SIZE) {
                 weight = (Long) event.getValue("allocationSize")
             }
 
@@ -441,6 +449,7 @@ class JfrReportTool {
             n 'Don\'t compress package names', longOpt: 'no-compress'
             _ 'Allocation flamegraph', longOpt: 'allocations'
             _ 'Allocation method', longOpt: 'allocation-method', args: 1, argName: 'method [size|count]'
+            _ 'Exceptions flamegraph', longOpt: 'exceptions'
         }
         cli.usage = "jfr-report-tool [-${cli.options.options.opt.findAll { it }.sort().join('')}] [jfrFile]"
 
@@ -469,6 +478,9 @@ class JfrReportTool {
         def jfrReportTool = new JfrReportTool()
         if (options.allocations) {
             jfrReportTool.useAllocationFlameGraph(options.'allocation-method'?:'size')
+        }
+        if (options.exceptions) {
+            jfrReportTool.useExceptionFlameGraph()
         }
         if (options.i) {
             jfrReportTool.includeFilter = Pattern.compile(options.i)
@@ -548,10 +560,18 @@ class JfrReportTool {
         }
     }
 
+    def useExceptionFlameGraph() {
+        filteredEventPaths = [EXCEPTION_THROW_EVENT_PATH, ERROR_THROW_EVENT_PATH] as Set
+        filteredEventPaths.addAll(INFO_EVENT_PATHS)
+        flameGraphType = FlameGraphType.EXCEPTIONS
+        excludeFilter = null
+        minimumSamples = 1
+    }
+
     private static String resolveExtension(String action, JfrReportTool jfrReportTool) {
         def extension = DEFAULT_EXTENSION[action] ?: 'svg'
-        if (jfrReportTool.allocationFlamegraph) {
-            extension = 'allocations.' + extension
+        if (jfrReportTool.flameGraphType != FlameGraphType.DEFAULT) {
+            extension = jfrReportTool.flameGraphType.toString().toLowerCase() + '.' + extension
         }
         extension
     }
@@ -559,7 +579,7 @@ class JfrReportTool {
     def useAllocationFlameGraph(String method) {
         filteredEventPaths = [ALLOCATION_IN_TLAB_EVENT_PATH, ALLOCATION_OUTSIDE_TLAB_EVENT_PATH] as Set
         filteredEventPaths.addAll(INFO_EVENT_PATHS)
-        allocationFlamegraph = true
+        flameGraphType = FlameGraphType.ALLOCATIONS
         excludeFilter = null
         minimumSamples = 1
         allocationMethod = AllocationMethod.valueOf(method.toUpperCase())
