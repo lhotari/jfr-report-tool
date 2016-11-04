@@ -183,14 +183,20 @@ class JfrReportTool {
                 if(e.cause instanceof InvalidFlrFileException) {
                     try {
                         // attempt gunzipping since loadFile method doesn't handle compressed files
-                        println "Uncompressing input with gzip on the fly..."
+                        println "Attempting uncompressing input with gzip on the fly..."
                         return FlightRecording.cast(jfrFile.withInputStream { input ->
                             new GZIPInputStream(input).withStream { gunzipInput ->
-                                FlightRecordingLoader.loadStream(gunzipInput)
+                                try {
+                                    FlightRecordingLoader.getMetaClass().invokeStaticMethod(FlightRecordingLoader, 'loadStream', [gunzipInput] as Object[])
+                                } catch (MissingMethodException mme) {
+                                    println "The current version of Java doesn't support loading a JFR from stream input. Please upgrade your JVM version or manually gunzip the JFR file before using this tool."
+                                    throw e
+                                }
                             }
                         })
                     } catch (ZipException zipException) {
                         if (zipException.message == 'Not in GZIP format') {
+                            println "Input wasn't in GZIP format."
                             // throw original exception since input wasn't in GZIP format
                             throw e
                         }
