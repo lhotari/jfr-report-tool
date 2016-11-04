@@ -5,6 +5,7 @@ import com.jrockit.mc.common.IMCFrame
 import com.jrockit.mc.flightrecorder.FlightRecording
 import com.jrockit.mc.flightrecorder.FlightRecordingLoader
 import com.jrockit.mc.flightrecorder.internal.model.FLRStackTrace
+import com.jrockit.mc.flightrecorder.internal.parser.binary.InvalidFlrFileException
 import com.jrockit.mc.flightrecorder.spi.*
 import com.jrockit.mc.flightrecorder.util.TimeRange
 import groovy.transform.CompileDynamic
@@ -16,6 +17,8 @@ import groovy.transform.stc.SimpleType
 import java.lang.reflect.Method
 import java.util.concurrent.TimeUnit
 import java.util.regex.Pattern
+import java.util.zip.GZIPInputStream
+import java.util.zip.ZipException
 
 @CompileStatic
 class JfrReportTool {
@@ -154,7 +157,7 @@ class JfrReportTool {
 
     @ReportAction("dump info")
     def dumpinfo(File jfrFile) {
-        def recording = FlightRecordingLoader.loadFile(jfrFile)
+        def recording = loadJfrFile(jfrFile)
         def view = recording.createView()
         view.setFilter(new IEventFilter() {
             boolean accept(IEvent iEvent) {
@@ -172,6 +175,35 @@ class JfrReportTool {
         }
     }
 
+    private FlightRecording loadJfrFile(File jfrFile) {
+        if (jfrFile.exists()) {
+            try {
+                return FlightRecordingLoader.loadFile(jfrFile)
+            } catch (RuntimeException e) {
+                if(e.cause instanceof InvalidFlrFileException) {
+                    try {
+                        // attempt gunzipping since loadFile method doesn't handle compressed files
+                        println "Uncompressing input with gzip on the fly..."
+                        return FlightRecording.cast(jfrFile.withInputStream { input ->
+                            new GZIPInputStream(input).withStream { gunzipInput ->
+                                FlightRecordingLoader.loadStream(gunzipInput)
+                            }
+                        })
+                    } catch (ZipException zipException) {
+                        if (zipException.message == 'Not in GZIP format') {
+                            // throw original exception since input wasn't in GZIP format
+                            throw e
+                        }
+                        throw zipException
+                    }
+                }
+                throw e
+            }
+        } else {
+            throw new FileNotFoundException(jfrFile.absolutePath)
+        }
+    }
+
     private void printEventFields(IEvent event, PrintWriter out, boolean showTypeInfo = false) {
         def eventType = event.eventType
         out.println "${eventType.name.padRight(33)}${showTypeInfo ? eventType.path.padRight(33) : ''}$eventType.description"
@@ -185,7 +217,7 @@ class JfrReportTool {
     @CompileDynamic
     @ReportAction("dump record types")
     def recordtypes(File jfrFile) {
-        def recording = FlightRecordingLoader.loadFile(jfrFile)
+        def recording = loadJfrFile(jfrFile)
         recording.m_repository.eventTypes.each { IEventType eventType ->
             println "${eventType.name.padRight(33)}${eventType.path.padRight(33)}$eventType.description"
         }
@@ -220,7 +252,7 @@ class JfrReportTool {
     }
 
     void handleRecordingByWindow(File jfrFile, Set<String> acceptedEventTypes, Closure<?> handler) {
-        def recording = FlightRecordingLoader.loadFile(jfrFile)
+        def recording = loadJfrFile(jfrFile)
         def fullRange = recording.timeRange
         long startTime = fullRange.startTimestamp + TimeUnit.SECONDS.toNanos(begin)
         long fullRangeEnd
